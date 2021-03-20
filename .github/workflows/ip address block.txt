@@ -1,0 +1,9 @@
+Under Local Security Settings / IP Security Policies
+
+Create a new IP Filter list
+Source IP is My IP address
+Destination (in this example) is 	172.58.97.110 	United States
+2	75.63.110.155	United States
+3	107.77.222.240	United States
+4	172.11.94.3 (nd.edu)
+Protocol is any
