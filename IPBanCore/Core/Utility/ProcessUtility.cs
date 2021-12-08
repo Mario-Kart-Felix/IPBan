@@ -23,11 +23,9 @@ SOFTWARE.
 */
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 
 #pragma warning disable IDE0059 // Unnecessary assignment of a value
 #pragma warning disable IDE0051 // Remove unused private members
@@ -165,10 +163,11 @@ namespace DigitalRuby.IPBanCore
         /// <param name="arguments">Arguments</param>
         public static void CreateDetachedProcess(string fileName, string arguments)
         {
+            arguments ??= string.Empty;
+            Logger.Warn("Running detached process {0} {1}", fileName, arguments);
+
             if (OSUtility.IsWindows)
             {
-                Logger.Warn("Running detached process {0} {1}", fileName, arguments);
-
                 var processInformation = new ProcessUtility.PROCESS_INFORMATION();
                 var startupInfo = new ProcessUtility.STARTUPINFO();
                 var sa = new ProcessUtility.SECURITY_ATTRIBUTES();
@@ -185,8 +184,6 @@ namespace DigitalRuby.IPBanCore
                 // use Linux at, should have been installed earlier
                 ProcessStartInfo info = new()
                 {
-                    // Linux uses nohup and " &" to detach the process
-                    // sudo -b to force it into the background
                     Arguments = "-c \"echo sudo \\\"" + fileName + "\\\" " + arguments.Replace("\"", "\\\"") + " | at now\"",
                     CreateNoWindow = true,
                     FileName = "/bin/bash",
@@ -195,10 +192,8 @@ namespace DigitalRuby.IPBanCore
                     WorkingDirectory = Path.GetDirectoryName(fileName)
                 };
 
-                Logger.Warn("Running detached process {0} {1}", info.FileName, info.Arguments);
-
-                // do not get a reference and do not dispose, this process is orphaned from this process
-                Process.Start(info);
+                // start detached process, do not dispose
+                using Process process = Process.Start(info);
             }
         }
     }

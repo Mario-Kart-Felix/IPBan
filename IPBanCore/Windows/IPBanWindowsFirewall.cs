@@ -26,6 +26,8 @@ SOFTWARE.
 
 #region Imports
 
+using DigitalRuby.IPBanCore.Windows.COM;
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -37,8 +39,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-
-using DigitalRuby.IPBanCore.Windows.COM;
 
 #endregion Imports
 
@@ -65,7 +65,7 @@ namespace DigitalRuby.IPBanCore
         private static readonly Type ruleType = Type.GetTypeFromCLSID(new Guid(clsidFwRule));
         private static readonly char[] firewallEntryDelimiters = new char[] { '/', '-' };
 
-        private string CreateRuleStringForIPAddresses(IReadOnlyList<string> ipAddresses, int index, int count)
+        private static string CreateRuleStringForIPAddresses(IReadOnlyList<string> ipAddresses, int index, int count)
         {
             if (count == 0 || index >= ipAddresses.Count)
             {
@@ -93,7 +93,7 @@ namespace DigitalRuby.IPBanCore
             return b.ToString();
         }
 
-        private bool GetOrCreateRule(string ruleName, string remoteIPAddresses, NetFwAction action, IEnumerable<PortRange> allowedPorts = null)
+        private static bool GetOrCreateRule(string ruleName, string remoteIPAddresses, NetFwAction action, IEnumerable<PortRange> allowedPorts = null)
         {
             remoteIPAddresses = (remoteIPAddresses ?? string.Empty).Trim();
             bool emptyIPAddressString = string.IsNullOrWhiteSpace(remoteIPAddresses) || remoteIPAddresses == "*";
@@ -193,13 +193,13 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private void CreateBlockRule(IReadOnlyList<string> ipAddresses, int index, int count, string ruleName, IEnumerable<PortRange> allowedPorts = null)
+        private static void CreateBlockRule(IReadOnlyList<string> ipAddresses, int index, int count, string ruleName, IEnumerable<PortRange> allowedPorts = null)
         {
             string remoteIpString = CreateRuleStringForIPAddresses(ipAddresses, index, count);
             GetOrCreateRule(ruleName, remoteIpString, NetFwAction.Block, allowedPorts);
         }
 
-        private void CreateAllowRule(IReadOnlyList<string> ipAddresses, int index, int count, string ruleName, IEnumerable<PortRange> allowedPorts = null)
+        private static void CreateAllowRule(IReadOnlyList<string> ipAddresses, int index, int count, string ruleName, IEnumerable<PortRange> allowedPorts = null)
         {
             string remoteIpString = CreateRuleStringForIPAddresses(ipAddresses, index, count);
             GetOrCreateRule(ruleName, remoteIpString, NetFwAction.Allow, allowedPorts);
@@ -253,7 +253,7 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private bool DeleteRules(string ruleNamePrefix, int startIndex = 0)
+        private static bool DeleteRules(string ruleNamePrefix, int startIndex = 0)
         {
             try
             {
@@ -283,7 +283,7 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private IEnumerable<INetFwRule> EnumerateRulesMatchingPrefix(string ruleNamePrefix)
+        private static IEnumerable<INetFwRule> EnumerateRulesMatchingPrefix(string ruleNamePrefix)
         {
             // powershell example
             // (New-Object -ComObject HNetCfg.FwPolicy2).rules | Where-Object { $_.Name -match '^prefix' } | ForEach-Object { Write-Output "$($_.Name)" }
@@ -371,7 +371,7 @@ namespace DigitalRuby.IPBanCore
             */
         }
 
-        private Task<bool> BlockOrAllowIPAddresses(string ruleNamePrefix, bool block, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
+        private static Task<bool> BlockOrAllowIPAddresses(string ruleNamePrefix, bool block, IEnumerable<string> ipAddresses, IEnumerable<PortRange> allowedPorts = null, CancellationToken cancelToken = default)
         {
 
 #if ENABLE_FIREWALL_PROFILING

@@ -27,7 +27,6 @@ SOFTWARE.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
@@ -36,8 +35,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
-using System.Xml;
 
 namespace DigitalRuby.IPBanCore
 {
@@ -103,7 +100,7 @@ namespace DigitalRuby.IPBanCore
         private static bool isMac;
 
 
-        private static string processVerb;
+        private static readonly string processVerb;
 
         static OSUtility()
         {
@@ -284,9 +281,8 @@ namespace DigitalRuby.IPBanCore
         /// <exception cref="ApplicationException">Exit code did not match allowed exit codes</exception>
         public static string StartProcessAndWait(string program, string args, params int[] allowedExitCodes)
         {
-            return StartProcessAndWait(60000, program, args, allowedExitCodes);
+            return StartProcessAndWait(60000, program, args, out _, allowedExitCodes);
         }
-
         /// <summary>
         /// Easy way to execute processes. If the process has not finished after timeoutMilliseconds, it is forced killed.
         /// </summary>
@@ -296,9 +292,43 @@ namespace DigitalRuby.IPBanCore
         /// <param name="allowedExitCodes">Allowed exit codes, if null or empty it is not checked, otherwise a mismatch will throw an exception.</param>
         /// <returns>Output</returns>
         /// <exception cref="ApplicationException">Exit code did not match allowed exit codes</exception>
-        public static string StartProcessAndWait(int timeoutMilliseconds, string program, string args, params int[] allowedExitCodes)
+        public static string StartProcessAndWait(int timeoutMilliseconds, string program, string args,
+            params int[] allowedExitCodes)
+        {
+            return StartProcessAndWait(timeoutMilliseconds, program, args, out _, allowedExitCodes);
+        }
+
+        /// <summary>
+        /// Easy way to execute processes. If the process has not finished after 60 seconds, it is forced killed.
+        /// </summary>
+        /// <param name="program">Program to run</param>
+        /// <param name="args">Arguments</param>
+        /// <param name="exitCode">Receives the exit code</param>
+        /// <param name="allowedExitCodes">Allowed exit codes, if null or empty it is not checked, otherwise a mismatch will throw an exception.</param>
+        /// <returns>Output</returns>
+        /// <exception cref="ApplicationException">Exit code did not match allowed exit codes</exception>
+        public static string StartProcessAndWait(string program, string args,
+            out int exitCode, params int[] allowedExitCodes)
+        {
+            return StartProcessAndWait(60000, program, args, out exitCode, allowedExitCodes);
+        }
+
+        /// <summary>
+        /// Easy way to execute processes. If the process has not finished after timeoutMilliseconds, it is forced killed.
+        /// </summary>
+        /// <param name="timeoutMilliseconds">Timeout in milliseconds</param>
+        /// <param name="program">Program to run</param>
+        /// <param name="args">Arguments</param>
+        /// <param name="exitCode">Receives the exit code</param>
+        /// <param name="allowedExitCodes">Allowed exit codes, if null or empty it is not checked, otherwise a mismatch will throw an exception.</param>
+        /// <returns>Output</returns>
+        /// <exception cref="ApplicationException">Exit code did not match allowed exit codes</exception>
+        public static string StartProcessAndWait(int timeoutMilliseconds, string program, string args,
+        out int exitCode, params int[] allowedExitCodes)
         {
             StringBuilder output = new();
+            int _exitCode = -1;
+            Exception _ex = null;
             Thread thread = new(new ParameterizedThreadStart((_state) =>
             {
                 Logger.Info($"Executing process {program} {args}...");
@@ -349,19 +379,34 @@ namespace DigitalRuby.IPBanCore
                     }
                     process.Kill();
                 }
+                _exitCode = process.ExitCode;
                 if (allowedExitCodes.Length != 0 && Array.IndexOf(allowedExitCodes, process.ExitCode) < 0)
                 {
-                    throw new ApplicationException($"Program {program} {args}: failed with exit code {process.ExitCode}, output: {output}");
+                    _ex = new ApplicationException($"Program {program} {args}: failed with exit code {process.ExitCode}, output: {output}");
                 }
             }));
             thread.Start();
             int timeout = (timeoutMilliseconds < 1 ? Timeout.Infinite : timeoutMilliseconds + 5000);
-            if (!thread.Join(timeout))
+            exitCode = _exitCode;
+            if (_ex is not null)
+            {
+                throw _ex;
+            }
+            else if (!thread.Join(timeout))
             {
                 throw new ApplicationException("Timed out waiting for process result");
             }
             return output.ToString();
         }
+
+        private static Dictionary<string, bool> users = new(StringComparer.OrdinalIgnoreCase);
+        private static DateTime usersExpire = IPBanService.UtcNow;
+
+        /// <summary>
+        /// The amount of time to cache the users found in the <see cref="UserIsActive(string)"/> method.
+        /// Default is 1 day.
+        /// </summary>
+        public static TimeSpan UserIsActiveCacheTime { get; set; } = TimeSpan.FromDays(1.0);
 
         /// <summary>
         /// Check if a user name is active on the local machine
@@ -376,72 +421,85 @@ namespace DigitalRuby.IPBanCore
             }
             userName = userName.Trim();
 
+            // check cache first
+            bool enabled;
+            if (usersExpire > IPBanService.UtcNow)
+            {
+                users.TryGetValue(userName, out enabled);
+                return enabled;
+            }
+
             try
             {
                 if (isWindows)
                 {
                     // Windows: WMI
-                    SelectQuery query = new("Win32_UserAccount");
-                    ManagementObjectSearcher searcher = new(query);
-                    foreach (ManagementObject user in searcher.Get())
+                    if (usersExpire <= IPBanService.UtcNow)
                     {
-                        if (user["Disabled"] is null || user["Disabled"].Equals(false))
+                        lock (users)
                         {
-                            string possibleMatch = user["Name"]?.ToString();
-                            if (possibleMatch != null && possibleMatch.Equals(userName, StringComparison.OrdinalIgnoreCase))
+                            Dictionary<string, bool> newUsers = new(StringComparer.OrdinalIgnoreCase);
+                            SelectQuery query = new("Win32_UserAccount");
+                            ManagementObjectSearcher searcher = new(query);
+                            foreach (ManagementObject user in searcher.Get())
                             {
-                                return true;
+#pragma warning disable CA1507 // Use nameof to express symbol names
+                                string foundUserName = user["Name"]?.ToString();
+#pragma warning restore CA1507 // Use nameof to express symbol names
+                                if (!string.IsNullOrWhiteSpace(foundUserName))
+                                {
+                                    newUsers[foundUserName] = user["Disabled"] is null || user["Disabled"].Equals(false);
+                                }
                             }
+                            usersExpire = IPBanService.UtcNow + UserIsActiveCacheTime;
+                            users = newUsers;
                         }
                     }
                 }
                 else if (isLinux)
                 {
                     // Linux: /etc/passwd
-                    if (File.Exists("/etc/passwd"))
+                    if (File.Exists("/etc/passwd") && File.Exists("/etc/shadow"))
                     {
-                        bool enabled = false;
-                        string[] lines;
-                        if (File.Exists("/etc/shadow"))
+                        // check for cache expire and refill if needed
+                        if (usersExpire <= IPBanService.UtcNow)
                         {
-                            lines = File.ReadAllLines("/etc/shadow");
-                            // example line:
-                            // root:!$1$Fp$SSSuo3L.xA5s/kMEEIloU1:18049:0:99999:7:::
-                            foreach (string[] pieces in lines.Select(l => l.Split(':')).Where(p => p.Length == 9))
+                            lock (users)
                             {
-                                string checkUserName = pieces[0].Trim();
-                                if (checkUserName.Equals(userName))
-                                {
-                                    string pwdHash = pieces[1].Trim();
-                                    if (pwdHash.Length != 0 && pwdHash[0] != '*' && pwdHash[0] != '!')
-                                    {
-                                        enabled = true;
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        return false;
-                                    }
-                                }
-                            }
-                        }
+                                Dictionary<string, bool> newUsers = new(StringComparer.OrdinalIgnoreCase);
 
-                        if (enabled)
-                        {
-                            // user is OK in shadow file, check passwd file
-                            lines = File.ReadAllLines("/etc/passwd");
-                            // example line:
-                            // root:x:0:0:root:/root:/bin/bash
-                            foreach (string[] pieces in lines.Select(l => l.Split(':')).Where(p => p.Length == 7))
-                            {
-                                // x means shadow file is where the password is at
-                                string checkUserName = pieces[0].Trim();
-                                string nologin = pieces[6];
-                                if (checkUserName.Equals(userName) && nologin.IndexOf("nologin", StringComparison.OrdinalIgnoreCase) < 0 &&
-                                    !nologin.Contains("/bin/false"))
+                                // enabled users must have an entry in password hash file
+                                string[] lines = File.ReadAllLines("/etc/shadow");
+
+                                // example line:
+                                // root:!$1$Fp$SSSuo3L.xA5s/kMEEIloU1:18049:0:99999:7:::
+                                foreach (string[] pieces in lines.Select(l => l.Split(':')).Where(p => p.Length == 9))
                                 {
-                                    return true;
+                                    string checkUserName = pieces[0].Trim();
+                                    string pwdHash = pieces[1].Trim();
+                                    bool hasPwdHash = (pwdHash.Length != 0 && pwdHash[0] != '*' && pwdHash[0] != '!');
+                                    newUsers[checkUserName] = hasPwdHash;
                                 }
+
+                                // filter out nologin users
+                                lines = File.ReadAllLines("/etc/passwd");
+
+                                // example line:
+                                // root:x:0:0:root:/root:/bin/bash
+                                foreach (string[] pieces in lines.Select(l => l.Split(':')).Where(p => p.Length == 7))
+                                {
+                                    // x means shadow file is where the password is at
+                                    string checkUserName = pieces[0].Trim();
+                                    string nologin = pieces[6];
+                                    bool cannotLogin = (nologin.Contains("nologin", StringComparison.OrdinalIgnoreCase) ||
+                                        nologin.Contains("/bin/false", StringComparison.OrdinalIgnoreCase));
+                                    if (cannotLogin)
+                                    {
+                                        newUsers[checkUserName] = false;
+                                    }
+                                }
+                                usersExpire = IPBanService.UtcNow + UserIsActiveCacheTime;
+                                users = newUsers;
                             }
                         }
                     }
@@ -453,7 +511,8 @@ namespace DigitalRuby.IPBanCore
                 Logger.Error("Error determining if user is active", ex);
             }
 
-            return false;
+            users.TryGetValue(userName, out enabled);
+            return enabled;
         }
 
         /// <summary>
@@ -606,20 +665,13 @@ namespace DigitalRuby.IPBanCore
                         MinorVersionMinimum <= os.Version.Minor);
 
                 bool matchEnvVar = true;
-                if (RequireEnvironmentVariable != null)
+                if (!string.IsNullOrWhiteSpace(RequireEnvironmentVariable))
                 {
                     string[] pieces = RequireEnvironmentVariable.Split('=');
-                    if (pieces.Length == 2)
+                    if (pieces.Length == 2 && !string.IsNullOrWhiteSpace(pieces[0]) && !string.IsNullOrWhiteSpace(pieces[1]))
                     {
                         string value = Environment.GetEnvironmentVariable(pieces[0]);
-                        if (value is null)
-                        {
-                            matchEnvVar = false;
-                        }
-                        else if (pieces[1].Length != 0)
-                        {
-                            matchEnvVar = pieces[1].Equals(value, StringComparison.OrdinalIgnoreCase);
-                        }
+                        matchEnvVar = pieces[1].Equals(value, StringComparison.OrdinalIgnoreCase);
                     }
                 }
 

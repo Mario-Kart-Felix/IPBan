@@ -22,6 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using DigitalRuby.IPBanCore;
+
+using NUnit.Framework;
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,10 +33,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-
-using DigitalRuby.IPBanCore;
-
-using NUnit.Framework;
 
 namespace DigitalRuby.IPBanTests
 {
@@ -43,7 +43,6 @@ namespace DigitalRuby.IPBanTests
 
         private const string ip1 = "99.99.99.97";
         private const string ip2 = "99.99.99.98";
-        private const string ip3 = "99.99.99.99";
         private static readonly IPAddressLogEvent info1 = new(ip1, "test_user", "RDP", 98, IPAddressEventType.FailedLogin);
         private static readonly IPAddressLogEvent info2 = new(ip2, "test_user2", "SSH", 99, IPAddressEventType.FailedLogin);
         private static readonly IPAddressLogEvent info3 = new(ip1, "test_user", "RDP", 1, IPAddressEventType.FailedLogin);
@@ -140,15 +139,41 @@ namespace DigitalRuby.IPBanTests
         }
 
         [Test]
+        public void TestSuccessEventViewer()
+        {
+            if (OSUtility.IsWindows)
+            {
+                const string xml = @"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-A5BA-3E3B0328C30D}' /><EventID>4624</EventID><Version>1</Version><Level>0</Level><Task>12544</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2019-06-13T14:35:04.718125000Z' /><EventRecordID>14296</EventRecordID><Correlation /><Execution ProcessID='480' ThreadID='7692' /><Channel>Security</Channel><Computer>ns524406</Computer><Security /></System><EventData><Data Name='SubjectUserSid'>S-1-5-18</Data><Data Name='SubjectUserName'>CPU4406$</Data><Data Name='SubjectDomainName'>WORKGROUP</Data><Data Name='SubjectLogonId'>0x3e7</Data><Data Name='TargetUserSid'>S-1-5-21-549477949-4172057549-3284972235-1005</Data><Data Name='TargetUserName'>rdpuser</Data><Data Name='TargetDomainName'>CPU4406</Data><Data Name='TargetLogonId'>0x1d454067</Data><Data Name='LogonType'>10</Data><Data Name='LogonProcessName'>User32</Data><Data Name='AuthenticationPackageName'>Negotiate</Data><Data Name='WorkstationName'>CPU4406</Data><Data Name='LogonGuid'>{00000000-0000-0000-0000-000000000000}</Data><Data Name='TransmittedServices'>-</Data><Data Name='LmPackageName'>-</Data><Data Name='KeyLength'>0</Data><Data Name='ProcessId'>0xc38</Data><Data Name='ProcessName'>C:\Windows\System32\winlogon.exe</Data><Data Name='IpAddress'>44.55.66.77</Data><Data Name='IpPort'>0</Data><Data Name='ImpersonationLevel'>%%1833</Data></EventData></Event>";
+                service.EventViewer.ProcessEventViewerXml(xml);
+                service.RunCycleAsync().Sync();
+                Assert.IsFalse(service.Firewall.IsIPAddressBlocked("44.55.66.77"));
+            }
+        }
+
+        [Test]
+        public void TestFailureEventViewer()
+        {
+            if (OSUtility.IsWindows)
+            {
+                const string xml = @"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-A5BA-3E3B0328C30D}'/><EventID>4625</EventID><Version>0</Version><Level>0</Level><Task>12544</Task><Opcode>0</Opcode><Keywords>0x8010000000000000</Keywords><TimeCreated SystemTime='2020-03-04T20:58:52.555949300Z'/><EventRecordID>38600046</EventRecordID><Correlation ActivityID='{75ECDDC3-EDB3-0003-CBDD-EC75B3EDD501}'/><Execution ProcessID='696' ThreadID='4092'/><Channel>Security</Channel><Computer>MYCOMPUTER</Computer><Security/></System><EventData><Data Name='SubjectUserSid'>S-1-0-0</Data><Data Name='SubjectUserName'>-</Data><Data Name='SubjectDomainName'>-</Data><Data Name='SubjectLogonId'>0x0</Data><Data Name='TargetUserSid'>S-1-0-0</Data><Data Name='TargetUserName'>administrator</Data><Data Name='TargetDomainName'></Data><Data Name='Status'>0xc000006d</Data><Data Name='FailureReason'>%%2313</Data><Data Name='SubStatus'>0xc000006a</Data><Data Name='LogonType'>3</Data><Data Name='LogonProcessName'>NtLmSsp </Data><Data Name='AuthenticationPackageName'>NTLM</Data><Data Name='WorkstationName'>-</Data><Data Name='TransmittedServices'>-</Data><Data Name='LmPackageName'>-</Data><Data Name='KeyLength'>0</Data><Data Name='ProcessId'>0x0</Data><Data Name='ProcessName'>-</Data><Data Name='IpAddress'>33.32.31.30</Data><Data Name='IpPort'>51292</Data></EventData></Event>";
+                service.EventViewer.ProcessEventViewerXml(xml);
+                service.RunCycleAsync().Sync();
+                Assert.IsFalse(service.Firewall.IsIPAddressBlocked("33.32.31.30"));
+            }
+        }
+
+        [Test]
         public void TestBanIPAddressExternal()
         {
             // add the external event to the service
             service.AddIPAddressLogEvents(new IPAddressLogEvent[]
             {
-                new IPAddressLogEvent("10.11.12.13", "TestUser", "RDP", 0, IPAddressEventType.Blocked, new DateTime(2020, 01, 01))
+                new IPAddressLogEvent("11.11.12.13", "TestDomain\\TestUser", "RDP", 0, IPAddressEventType.Blocked, new DateTime(2020, 01, 01))
             });
             service.RunCycleAsync().Sync();
-            Assert.IsTrue(service.Firewall.IsIPAddressBlocked("10.11.12.13", out _));
+            Assert.IsTrue(service.Firewall.IsIPAddressBlocked("11.11.12.13", out _));
+            Assert.IsTrue(service.DB.TryGetIPAddress("11.11.12.13", out IPBanDB.IPAddressEntry entry));
+            Assert.IsNotNull(entry.BanStartDate);
         }
 
         [Test]
@@ -208,13 +233,14 @@ namespace DigitalRuby.IPBanTests
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                // prime Linux log files
-                IPBanPlugin.IPBanLoginFailed("SSH", "User1", "78.88.88.88");
+                // prime linux log file
+                IPBanPlugin.IPBanLoginFailed("SSH", "TestDomain\\User1", "78.88.88.88");
             }
             service.RunCycleAsync().Sync();
+
             for (int i = 0; i < 5; i++)
             {
-                IPBanPlugin.IPBanLoginFailed("SSH", "User1", "88.88.88.88");
+                IPBanPlugin.IPBanLoginFailed("SSH", "TestDomain\\User1", "88.88.88.88");
                 service.RunCycleAsync().Sync();
 
                 // attempt to read failed logins, if they do not match, sleep a bit and try again
@@ -223,6 +249,14 @@ namespace DigitalRuby.IPBanTests
                     System.Threading.Thread.Sleep(100);
                     service.RunCycleAsync().Sync();
                 }
+
+                if (i == 0)
+                {
+                    Assert.IsTrue(service.DB.TryGetIPAddress("88.88.88.88", out IPBanDB.IPAddressEntry entry));
+                    Assert.AreEqual("User1", entry.UserName);
+                    Assert.AreEqual("SSH", entry.Source);
+                }
+
                 IPBanService.UtcNow += TimeSpan.FromMinutes(5.0);
             }
             service.RunCycleAsync().Sync();
@@ -353,15 +387,42 @@ namespace DigitalRuby.IPBanTests
         }
 
         [Test]
-        public void TestUserNameWhitelistBan()
+        public async Task TestUserNameWhitelistBan()
         {
             using IPBanConfig.TempConfigChanger configChanger = new(service, xml =>
             {
                 return IPBanConfig.ChangeConfigAppSetting(xml, "UserNameWhitelist", "OnlyMe");
             }, out string newConfig);
 
-            // TODO: ensure non OnlyMe users are banned immediately
-            // TODO: ensure OnlyMe user gets 20 failed logins before ban
+            service.AddIPAddressLogEvents(new IPAddressLogEvent[]
+            {
+                // should ban, we have a user name whitelist
+                new IPAddressLogEvent("99.99.99.90", "ftp_1", "RDP", 1, IPAddressEventType.FailedLogin),
+
+                // should not ban after 19 attempts, user is whitelisted
+                new IPAddressLogEvent("99.99.99.99", "onlyme", "RDP", 19, IPAddressEventType.FailedLogin)
+            });
+            await service.RunCycleAsync();
+
+            Assert.IsTrue(service.Firewall.IsIPAddressBlocked("99.99.99.90", out _));
+            Assert.IsFalse(service.Firewall.IsIPAddressBlocked("99.99.99.99", out _));
+        }
+
+        [Test]
+        public async Task TestNoInternalFailedLoginsOrBans()
+        {
+            service.AddIPAddressLogEvents(new IPAddressLogEvent[]
+            {
+                new IPAddressLogEvent("10.11.12.13", "TestUser", "RDP", 9, IPAddressEventType.FailedLogin)
+            });
+            await service.RunCycleAsync();
+            service.AddIPAddressLogEvents(new IPAddressLogEvent[]
+            {
+                new IPAddressLogEvent("10.11.12.13", "TestUser", "RDP", 9, IPAddressEventType.FailedLogin)
+            });
+            await service.RunCycleAsync();
+
+            Assert.IsFalse(service.Firewall.IsIPAddressBlocked("10.11.12.13"));
         }
 
         [Test]
@@ -369,7 +430,7 @@ namespace DigitalRuby.IPBanTests
         {
             service.AddIPAddressLogEvents(new IPAddressLogEvent[]
             {
-                new IPAddressLogEvent("10.11.12.13", "TestUser", "RDP", 9, IPAddressEventType.FailedLogin,
+                new IPAddressLogEvent("11.11.12.13", "TestUser", "RDP", 9, IPAddressEventType.FailedLogin,
                     new DateTime(2020, 01, 01), failedLoginThreshold: 10)
             });
 
@@ -378,12 +439,12 @@ namespace DigitalRuby.IPBanTests
 
             service.AddIPAddressLogEvents(new IPAddressLogEvent[]
             {
-                new IPAddressLogEvent("10.11.12.13", "TestUser", "RDP", 1, IPAddressEventType.FailedLogin,
+                new IPAddressLogEvent("11.11.12.13", "TestUser", "RDP", 1, IPAddressEventType.FailedLogin,
                     new DateTime(2020, 01, 01), failedLoginThreshold: 10)
             });
 
             await service.RunCycleAsync();
-            Assert.IsTrue(service.Firewall.IsIPAddressBlocked("10.11.12.13"));
+            Assert.IsTrue(service.Firewall.IsIPAddressBlocked("11.11.12.13"));
         }
 
         private async Task TestMultipleBanTimespansAsync(bool resetFailedLogin)
@@ -519,7 +580,7 @@ namespace DigitalRuby.IPBanTests
 
             public void Dispose()
             {
-                
+
             }
         }
 
@@ -529,7 +590,6 @@ namespace DigitalRuby.IPBanTests
             const string userName = "TEST";
             const string source = "RDP";
             const IPAddressEventType type = IPAddressEventType.FailedLogin;
-            KeyValuePair<DateTime?, DateTime?> banDates;
             service.IPBanDelegate = new ExternalBlocker(service);
 
             IPAddressLogEvent[] events = new IPAddressLogEvent[1];
@@ -555,7 +615,7 @@ namespace DigitalRuby.IPBanTests
                 // run cycle again, should get pinged by external blocker and ip should be blocked
                 await service.RunCycleAsync();
                 Assert.IsTrue(service.Firewall.IsIPAddressBlocked(ipAddress));
-                Assert.IsTrue(service.DB.TryGetBanDates(ipAddress, out banDates));
+                Assert.IsTrue(service.DB.TryGetBanDates(ipAddress, out KeyValuePair<DateTime?, DateTime?> banDates));
                 Assert.AreEqual(IPBanService.UtcNow, banDates.Key);
                 Assert.AreEqual(IPBanService.UtcNow.AddMinutes(1.0), banDates.Value);
 
@@ -670,9 +730,9 @@ namespace DigitalRuby.IPBanTests
         [Test]
         public void TestIPWhitelistRegex()
         {
-            RunConfigBanTest("WhitelistRegex", "^10.0.([0-1]).([0-9]|[1-9][0-9]|1([0-9][0-9])|2([0-4][0-9]|5[0-5]))$", "192.168.99.99", "10.0.0.1", -1);
-            RunConfigBanTest("WhitelistRegex", "^(10.0.0.*)|(99.99.99.[0-9])$", "192.168.99.99", "10.0.0.1", -1);
-            RunConfigBanTest("WhitelistRegex", "^(10.0.0.*)|(99.99.99.[0-9])$", "192.168.99.99", "99.99.99.1", -1);
+            RunConfigBanTest("WhitelistRegex", "^11.0.([0-1]).([0-9]|[1-9][0-9]|1([0-9][0-9])|2([0-4][0-9]|5[0-5]))$", "193.168.99.99", "11.0.0.1", -1);
+            RunConfigBanTest("WhitelistRegex", "^(11.0.0.*)|(99.99.99.[0-9])$", "193.168.99.99", "11.0.0.1", -1);
+            RunConfigBanTest("WhitelistRegex", "^(11.0.0.*)|(99.99.99.[0-9])$", "193.168.99.99", "99.99.99.1", -1);
         }
 
         [Test]
@@ -686,9 +746,9 @@ namespace DigitalRuby.IPBanTests
         [Test]
         public void TestIPBlacklistRegex()
         {
-            RunConfigBanTest("BlacklistRegex", "^10.0.([0-1]).([0-9]|[1-9][0-9]|1([0-9][0-9])|2([0-4][0-9]|5[0-5]))$", "10.0.0.1", "192.168.99.100", 1);
-            RunConfigBanTest("BlacklistRegex", "^(10.0.0.*)|(99.99.99.[0-9])$", "10.0.0.1", "192.168.99.99", 1);
-            RunConfigBanTest("BlacklistRegex", "^(10.0.0.*)|(99.99.99.[0-9])$", "99.99.99.1", "192.168.99.98", 1);
+            RunConfigBanTest("BlacklistRegex", "^11.0.([0-1]).([0-9]|[1-9][0-9]|1([0-9][0-9])|2([0-4][0-9]|5[0-5]))$", "11.0.0.1", "193.168.99.100", 1);
+            RunConfigBanTest("BlacklistRegex", "^(11.0.0.*)|(99.99.99.[0-9])$", "11.0.0.1", "193.168.99.99", 1);
+            RunConfigBanTest("BlacklistRegex", "^(11.0.0.*)|(99.99.99.[0-9])$", "99.99.99.1", "193.168.99.98", 1);
             RunConfigBanTest("BlacklistRegex", ".", "99.99.99.2", null);
         }
 

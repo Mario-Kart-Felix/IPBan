@@ -75,6 +75,16 @@ namespace DigitalRuby.IPBanCore
         /// <inheritdoc />
         public async Task HandleBannedIPAddress(string ipAddress, string source, string userName, string osName, string osVersion, string assemblyVersion, IHttpRequestMaker requestMaker)
         {
+
+#if DEBUG
+
+            if (!UnitTestDetector.Running)
+            {
+                return;
+            }
+
+#endif
+
             if (requestMaker is null)
             {
                 return;

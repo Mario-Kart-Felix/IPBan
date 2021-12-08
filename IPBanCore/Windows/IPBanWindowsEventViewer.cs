@@ -88,6 +88,7 @@ namespace DigitalRuby.IPBanCore
             query = null;
             if (watcher != null)
             {
+                GC.SuppressFinalize(this);
                 watcher.Dispose();
                 watcher = null;
                 service.RemoveUpdater(this);
@@ -120,7 +121,7 @@ namespace DigitalRuby.IPBanCore
             return info;
         }
 
-        private bool FindSourceAndUserNameForInfo(IPAddressLogEvent info, XmlDocument doc)
+        private static bool FindSourceAndUserNameForInfo(IPAddressLogEvent info, XmlDocument doc)
         {
             if (string.IsNullOrWhiteSpace(info.IPAddress))
             {
@@ -272,7 +273,7 @@ namespace DigitalRuby.IPBanCore
                 timestamp is null ? default : timestamp.Value, false, failedLoginThreshold, logLevel);
         }
 
-        private XmlDocument ParseXml(string xml)
+        private static XmlDocument ParseXml(string xml)
         {
             xml = invalidXmlRegex.Replace(xml, string.Empty);
             XmlTextReader reader = new(new StringReader(xml))

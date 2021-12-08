@@ -38,10 +38,12 @@ namespace DigitalRuby.IPBanCore
 {
     public partial class IPBanService
     {
-        private static readonly char[] regexTrimChars = new char[]
+        private static readonly char[] regexTrimChars = new[]
         {
-            ',', ';', '|', '_', '-', '\'', '\"', '(', ')', '[', ']', '{', '}', ' ', '\t', '\r', '\n'
+            ',', ';', '|', '_', '-', '/', '\'', '\"', '(', ')', '[', ']', '{', '}', ' ', '\t', '\r', '\n'
         };
+
+        private static readonly char[] userNamePrefixChars = new[] { ',', '\\' };
 
         // batch failed logins every cycle
         private readonly List<IPAddressLogEvent> pendingFailedLogins = new();
@@ -73,7 +75,7 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public string ConfigFilePath
         {
-            get { return ConfigReaderWriter.Path; }
+            get => ConfigReaderWriter.Path;
             set
             {
                 ConfigReaderWriter.Path = value;
@@ -120,6 +122,16 @@ namespace DigitalRuby.IPBanCore
         /// Configuration
         /// </summary>
         public IPBanConfig Config { get; private set; }
+
+        /// <summary>
+        /// Whitelist
+        /// </summary>
+        public IIPBanFilter Whitelist => Config.WhitelistFilter;
+
+        /// <summary>
+        /// Blacklist
+        /// </summary>
+        public IIPBanFilter Blacklist => Config.BlacklistFilter;
 
         /// <summary>
         /// Config changed event
@@ -222,8 +234,8 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public static DateTime UtcNow
         {
-            get { return utcNow ?? DateTime.UtcNow; }
-            set { utcNow = (value == default ? null : (DateTime?)value); }
+            get => utcNow ?? DateTime.UtcNow;
+            set => utcNow = (value == default ? null : (DateTime?)value);
         }
 
         /// <summary>

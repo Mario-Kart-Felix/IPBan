@@ -37,7 +37,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
-using System.Xml.Linq;
 
 #endregion Imports
 
@@ -172,7 +171,7 @@ namespace DigitalRuby.IPBanCore
                     IPBanConfig newConfig = IPBanConfig.LoadFromXml(finalXml, DnsLookup, DnsList, RequestMaker);
                     bool configChanged = oldConfig is null || oldConfig.Xml != newConfig.Xml;
                     ConfigChanged?.Invoke(newConfig);
-                    whitelistChanged = (Config is null || Config.Whitelist != newConfig.Whitelist || Config.WhitelistRegex != newConfig.WhitelistRegex);
+                    whitelistChanged = (Config is null || !Config.WhitelistFilter.Equals(newConfig.WhitelistFilter));
                     Config = newConfig;
                     LoadFirewall(oldConfig);
                     ParseAndAddUriFirewallRules(newConfig);
@@ -180,7 +179,12 @@ namespace DigitalRuby.IPBanCore
                     if (configChanged)
                     {
                         Logger.Info("Config file changed");
-                    } // else config was force refreshed but no actual change
+                    }
+                    else
+                    {
+                        Logger.Debug("Config file force reloaded");
+                    }
+                    Logger.Debug("New config: " + Config.Xml);
                 }
             }
             catch (Exception ex)
@@ -213,15 +217,15 @@ namespace DigitalRuby.IPBanCore
             return ipDB.BeginTransaction();
         }
 
-        private void CommitTransaction(object transaction)
+        private static void CommitTransaction(object transaction)
         {
-            ipDB.CommitTransaction(transaction);
+            SqliteDB.CommitTransaction(transaction);
         }
 
-        private void RollbackTransaction(object transaction)
+        private static void RollbackTransaction(object transaction)
         {
             // if already committed, nothing happens
-            ipDB.RollbackTransaction(transaction);
+            SqliteDB.RollbackTransaction(transaction);
         }
 
         private async Task SetNetworkInfo()
@@ -229,9 +233,25 @@ namespace DigitalRuby.IPBanCore
             if (string.IsNullOrWhiteSpace(FQDN))
             {
                 string serverName = System.Environment.MachineName;
+                string domainName = null;
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        domainName = System.DirectoryServices.ActiveDirectory.Domain.GetComputerDomain().Name;
+                    }
+                    catch
+                    {
+                    }
+                }
                 try
                 {
                     FQDN = await DnsLookup.GetHostNameAsync();
+                    if (!string.IsNullOrWhiteSpace(domainName) &&
+                        !FQDN.StartsWith(domainName + ".", StringComparison.OrdinalIgnoreCase))
+                    {
+                        FQDN = domainName + "." + FQDN;
+                    }
                 }
                 catch
                 {
@@ -293,6 +313,17 @@ namespace DigitalRuby.IPBanCore
                     try
                     {
                         string ipAddress = failedLogin.IPAddress;
+
+                        // internal ip failed logins should not be processed
+                        if (!IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipAddressObj) ||
+                            (!Config.ProcessInternalIPAddresses && ipAddressObj.IsInternal()))
+                        {
+                            continue;
+                        }
+
+                        // normalize for firewall
+                        ipAddressObj = ipAddressObj.Clean();
+                        ipAddress = ipAddressObj.ToString();
                         string userName = failedLogin.UserName;
                         string source = failedLogin.Source;
                         if (IsWhitelisted(ipAddress))
@@ -302,7 +333,10 @@ namespace DigitalRuby.IPBanCore
                         else
                         {
                             int maxFailedLoginAttempts;
-                            if (Config.IsWhitelisted(userName))
+                            bool hasUserNameWhitelist = false;
+                            bool userNameWhitelisted = Config.IsWhitelisted(userName) ||
+                                Config.IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(userName, out hasUserNameWhitelist);
+                            if (userNameWhitelisted)
                             {
                                 maxFailedLoginAttempts = Config.FailedLoginAttemptsBeforeBanUserNameWhitelist;
                             }
@@ -315,10 +349,11 @@ namespace DigitalRuby.IPBanCore
                             DateTime now = failedLogin.Timestamp;
 
                             // check for the target user name for additional blacklisting checks
-                            bool ipBlacklisted = Config.IsBlackListed(ipAddress);
-                            bool userBlacklisted = (ipBlacklisted ? false : Config.IsBlackListed(userName));
-                            bool userFailsWhitelistRegex = (userBlacklisted ? false : Config.UserNameFailsUserNameWhitelistRegex(userName));
-                            bool editDistanceBlacklisted = (ipBlacklisted || userBlacklisted || userFailsWhitelistRegex ? false : !Config.IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(userName));
+                            bool ipBlacklisted = Config.BlacklistFilter.IsFiltered(ipAddress);
+                            bool userBlacklisted = (!ipBlacklisted && Config.BlacklistFilter.IsFiltered(userName));
+                            bool userFailsWhitelistRegex = (!userBlacklisted && Config.UserNameFailsUserNameWhitelistRegex(userName));
+                            bool editDistanceBlacklisted = (!ipBlacklisted && !userBlacklisted && !userFailsWhitelistRegex &&
+                                (hasUserNameWhitelist && !userNameWhitelisted));
                             bool configBlacklisted = ipBlacklisted || userBlacklisted || userFailsWhitelistRegex || editDistanceBlacklisted;
 
                             // if the event came in with a count of 0 that means it is an automatic ban
@@ -384,13 +419,22 @@ namespace DigitalRuby.IPBanCore
 
         private Task ProcessPendingSuccessfulLogins(IEnumerable<IPAddressLogEvent> ipAddresses)
         {
+            List<IPAddressLogEvent> finalList = new();
             foreach (IPAddressLogEvent info in ipAddresses)
             {
-                Logger.Log(info.LogLevel, "Login succeeded, address: {0}, user name: {1}, source: {2}", info.IPAddress, info.UserName, info.Source);
-                if (Config.ClearFailedLoginsOnSuccessfulLogin)
+                // if we have a valid ip that is not internal, process the successful login
+                if (System.Net.IPAddress.TryParse(info.IPAddress, out System.Net.IPAddress ipAddressObj) &&
+                    (Config.ProcessInternalIPAddresses || !ipAddressObj.IsInternal()))
                 {
-                    DB.DeleteIPAddress(info.IPAddress);
-                    firewallNeedsBlockedIPAddressesUpdate = true;
+                    finalList.Add(info);
+                    string ipString = ipAddressObj.ToString();
+                    Logger.Log(info.LogLevel, "Login succeeded, address: {0}, user name: {1}, source: {2}",
+                        info.IPAddress, info.UserName, info.Source);
+                    if (Config.ClearFailedLoginsOnSuccessfulLogin)
+                    {
+                        DB.DeleteIPAddress(ipString);
+                        firewallNeedsBlockedIPAddressesUpdate = true;
+                    }
                 }
             }
             if (IPBanDelegate != null)
@@ -399,7 +443,7 @@ namespace DigitalRuby.IPBanCore
                 {
                     try
                     {
-                        foreach (IPAddressLogEvent info in ipAddresses)
+                        foreach (IPAddressLogEvent info in finalList)
                         {
                             // pass the success login on
                             IPBanDelegate.LoginAttemptSucceeded(info.IPAddress, info.Source, info.UserName, MachineGuid, OSName, OSVersion, info.Count, info.Timestamp);
@@ -431,9 +475,15 @@ namespace DigitalRuby.IPBanCore
             List<IPAddressLogEvent> bannedIpAddresses, DateTime startBanDate, bool configBlacklisted,
             int counter, string extraInfo, object transaction, bool external)
         {
-            // never ban whitelisted ip addresses
-            if (IsWhitelisted(ipAddress))
+            // if bad ip or internal ip, ignore
+            if (!System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipAddressObj) ||
+                (!Config.ProcessInternalIPAddresses && ipAddressObj.IsInternal()))
             {
+                return;
+            }
+            else if (IsWhitelisted(ipAddress))
+            {
+                // never ban whitelisted ip addresses
                 Logger.Info("Ignoring ban request for whitelisted ip address {0}", ipAddress);
                 return;
             }
@@ -477,9 +527,7 @@ namespace DigitalRuby.IPBanCore
             {
                 return;
             }
-            else if (BannedIPAddressHandler != null &&
-                System.Net.IPAddress.TryParse(ipAddress, out System.Net.IPAddress ipAddressObj) &&
-                !ipAddressObj.IsInternal())
+            else if (BannedIPAddressHandler != null)
             {
                 try
                 {
@@ -652,8 +700,8 @@ namespace DigitalRuby.IPBanCore
             SetupWindowsEventViewer();
 
             // add/update global rules
-            Firewall.AllowIPAddresses("GlobalWhitelist", Config.Whitelist);
-            Firewall.BlockIPAddresses("GlobalBlacklist", Config.BlackList);
+            Firewall.AllowIPAddresses("GlobalWhitelist", Config.WhitelistFilter.IPAddressRanges);
+            Firewall.BlockIPAddresses("GlobalBlacklist", Config.BlacklistFilter.IPAddressRanges);
 
             // add/update user specified rules
             foreach (IPBanFirewallRule rule in Config.ExtraRules)
@@ -705,7 +753,7 @@ namespace DigitalRuby.IPBanCore
             foreach (IPBanDB.IPAddressEntry ipAddress in ipDB.EnumerateIPAddresses(failLoginCutOff, banCutOff, transaction))
             {
                 // never un-ban a blacklisted entry
-                if (Config.IsBlackListed(ipAddress.IPAddress) && !Config.IsWhitelisted(ipAddress.IPAddress))
+                if (Config.BlacklistFilter.IsFiltered(ipAddress.IPAddress))
                 {
                     Logger.Debug("Not unbanning blacklisted ip {0}", ipAddress.IPAddress);
                     continue;
@@ -781,11 +829,11 @@ namespace DigitalRuby.IPBanCore
             catch (Exception ex)
             {
                 Logger.Error(ex);
-                DB.RollbackTransaction(transaction);
+                SqliteDB.RollbackTransaction(transaction);
             }
             finally
             {
-                DB.CommitTransaction(transaction);
+                SqliteDB.CommitTransaction(transaction);
             }
         }
 
@@ -1087,10 +1135,22 @@ namespace DigitalRuby.IPBanCore
                 {
                     Logger.Trace("Processing log event {0}...", evt);
 
-                    if (!IPBanFirewallUtility.TryNormalizeIPAddress(evt.IPAddress, out string normalizedIPAddress))
+                    if (!evt.IPAddress.TryNormalizeIPAddress(out string normalizedIPAddress))
                     {
                         continue;
                     }
+
+                    // remove domain prefix from username
+                    if (evt.UserName != null)
+                    {
+                        evt.UserName = evt.UserName.Trim();
+                        int pos = evt.UserName.IndexOfAny(userNamePrefixChars);
+                        if (pos >= 0)
+                        {
+                            evt.UserName = evt.UserName[++pos..];
+                        }
+                    }
+
                     evt.IPAddress = normalizedIPAddress;
                     switch (evt.Type)
                     {

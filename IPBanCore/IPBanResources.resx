@@ -472,7 +472,7 @@
     <value>Email Body Template</value>
   </data>
   <data name="SmtpBodyTemplateTooltip" xml:space="preserve">
-    <value>Body template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type</value>
+    <value>Body template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type, {9} = source.</value>
   </data>
   <data name="SmtpFrom" xml:space="preserve">
     <value>Send Email As</value>
@@ -498,7 +498,7 @@
     <value>Email Subject Template</value>
   </data>
   <data name="SmtpSubjectTemplateTooltip" xml:space="preserve">
-    <value>Subject template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type</value>
+    <value>Subject template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type, {9} = source.</value>
   </data>
   <data name="SmtpTo" xml:space="preserve">
     <value>Send Email To</value>
@@ -549,7 +549,7 @@
     <value>Tools</value>
   </data>
   <data name="UnexpectedError" xml:space="preserve">
-    <value>An unexpected error has ocurred. Please email support@digitalruby.com for help.</value>
+    <value>An unexpected error has ocurred. Please email support@ipban.com for help.</value>
   </data>
   <data name="UserName" xml:space="preserve">
     <value>User Name</value>
@@ -847,5 +847,32 @@
   </data>
   <data name="LogLevel" xml:space="preserve">
     <value>Log Level</value>
+  </data>
+  <data name="LocalIP" xml:space="preserve">
+    <value>Local IP Address</value>
+  </data>
+  <data name="UpdateAvailable" xml:space="preserve">
+    <value>Update Available</value>
+  </data>
+  <data name="AllowedPorts" xml:space="preserve">
+    <value>Allowed Ports</value>
+  </data>
+  <data name="AllowedPortsTooltip" xml:space="preserve">
+    <value>Allowed port/port-ranges (comma separated). Empty to not allow any ports. Example: 80, 443, 500-510. Only supported on WinDivert and WFP firewalls.</value>
+  </data>
+  <data name="CountryBlacklistFirstFailedLogin" xml:space="preserve">
+    <value>First Failed Login</value>
+  </data>
+  <data name="CountryBlacklistFirstFailedLoginTooltip" xml:space="preserve">
+    <value>Whether to wait until first failed login from a bad country before banning (checked) or to pro-actively add the entire country to the firewall if possible (unchecked). If checked, allowed ports is ignored.</value>
+  </data>
+  <data name="CredentialPropagation" xml:space="preserve">
+    <value>Any changes made to the administrator account will propagate to clients automatically.</value>
+  </data>
+  <data name="ProcessInternalIPAddresses" xml:space="preserve">
+    <value>Process Internal IP Addresses</value>
+  </data>
+  <data name="ProcessInternalIPAddressesTooltip" xml:space="preserve">
+    <value>Whether to process internal ip addresses</value>
   </data>
 </root>

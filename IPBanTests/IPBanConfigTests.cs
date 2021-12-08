@@ -22,26 +22,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using DigitalRuby.IPBanCore;
+
+using NUnit.Framework;
+
 using System;
 using System.Collections.Generic;
-using System.Configuration;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
-using DigitalRuby.IPBanCore;
-
-using NUnit.Framework;
-
 namespace DigitalRuby.IPBanTests
 {
     [TestFixture]
     public class IPBanConfigTests : IDnsLookup
     {
-        private void AssertLogFileToParse(IPBanLogFileToParse file, string failedLoginRegex, string failedLoginRegexTimestampFormat,
+        private static void AssertLogFileToParse(IPBanLogFileToParse file, string failedLoginRegex, string failedLoginRegexTimestampFormat,
             int maxFileSize, string pathAndMask, int pingInterval, string platformRegex,
             string source, string successfulLoginRegex, string successfulLoginRegexTimestampFormat,
             LogLevel failedLogLevel = LogLevel.Warning, LogLevel successLogLevel = LogLevel.Warning)
@@ -59,7 +57,7 @@ namespace DigitalRuby.IPBanTests
             Assert.AreEqual(successLogLevel, file.SuccessfulLoginLogLevel);
         }
 
-        private void AssertLogFilesToParse(IPBanConfig cfg)
+        private static void AssertLogFilesToParse(IPBanConfig cfg)
         {
             const int maxFileSize = 16777216;
             const int pingInterval = 10000;
@@ -82,7 +80,7 @@ namespace DigitalRuby.IPBanTests
                 "Linux", "IPBanCustom",
 
                 "C:/Program Files/Microsoft/Exchange Server/*/TransportRoles/Logs/FrontEnd/ProtocolLog/**.log",
-                @"^(?<timestamp>[0-9TZ\-:\.]+),(?:[^,\n]*,){3}(?:(?<ipaddress>[^,\n]+),(?<username>[^,\n]*),.*?AuthFailed[^\n]*|(?:[^,\n]*,)(?<ipaddress>[^,\n]+),(?:[^,\n]*,){2}.*?\sof\sLogonDenied\n.*?User\sName:\s(?<username>[^\n]*))\n",
+                @"^(?<timestamp>[0-9TZ\-:\.]+),(?:.*?\\(?:External\sAuthenticated\sRelay|Internet\sRecive\sFrontend),)?(?:[^,\n]*,){3}(?<ipaddress>[^,\n]+).*?(?:(?:504\s5\.7\.4\sUnrecognized\sauthentication\stype)|(?:LogonDenied\n?.*?(?:User\:|User\sName\:)\s(?<username>[^\n,""]+)))",
                 @"",
                 @"^(?<timestamp>[0-9TZ\-:\.]+)?,(?:[^,\n]*,){4}(?<ipaddress>[^,\n]+),(?:[^,\n]*),(?<username>[^,\n]*),authenticated",
                 @"",
@@ -95,15 +93,15 @@ namespace DigitalRuby.IPBanTests
                 @"",
                 "Windows", "SmarterMail",
 
-                "C:/Program Files (x86)/Mail Enable/Logging/SMTP/SMTP-Activity-*.log\nC:/Program Files/Mail Enable/Logging/SMTP/SMTP-Activity-*.log",
-                @"^(?<timestamp>(?:\d\d.){5}\d\d)(?:\t.*?){4}(?<ipaddress>.*?)\t.*?Invalid\sUsername\sor\sPassword(?:\t.*?){2}\t(?<username>.*?)$",
+                "C:/Program Files (x86)/Mail Enable/Logging/SMTP/SMTP-Activity-*.log\nC:/Program Files/Mail Enable/Logging/SMTP/SMTP-Activity-*.log\nC:/Program Files (x86)/Mail Enable/Logging/IMAP\nC:/Program Files/Mail Enable/Logging/IMAP",
+                @"^(?<timestamp>[0-9\/:\s]+)SMTP\-IN\s+[^\s]+\s+[^\s]+\s(?<ipaddress>[^\s]+)\s+[^\s]+\s+[^\s]+\s+[^\s]+\s+Invalid\sUsername\sor\sPassword\s+[^\s]+\s+[^\s]+\s+(?<username>[^\n]+)$|^(?<timestamp>[0-9\/:\s]+)IMAP\-IN\s+[^\s]+\s+(?<ipaddress>[^\s]+)\s+LOGIN\s+LOGIN\s+""(?<username>[^""]+)""\s+""[^""]+""\s+[^\s]+\s+NO\s+LOGIN\s+Failed\s+[^\s]+\s+Invalid\s+username\s+or\s+password[^\n]*$",
                 @"MM/dd/yy HH:mm:ss",
                 @"",
                 @"",
                 "Windows", "MailEnable",
 
                 "C:/Program Files/Tomcat/logs/**/*access_log*.txt",
-                @"^(?<ipaddress>[^\s]+)\s.*?\[(?<timestamp>.*?)\].*?((php|md5sum|cgi-bin|joomla).*?\s404\s[0-9]+|\s400\s-)$",
+                @"^(?<ipaddress>[^\s]+)\s.*?\[(?<timestamp>.*?)\].*?(?:(?:\s40[034]\s(-|[0-9]+))|((php|md5sum|cgi-bin|joomla).*?\s404\s[0-9]+|\s400\s-))[^\n]*",
                 @"dd/MMM/yyyy:HH:mm:ss zzzz",
                 @"",
                 @"",
@@ -133,7 +131,7 @@ namespace DigitalRuby.IPBanTests
             }
         }
 
-        private void AssertEventViewerGroup(EventViewerExpressionGroup group, string keywords, int windowsMinimumMajorVersion, int windowsMinimumMinorVersion,
+        private static void AssertEventViewerGroup(EventViewerExpressionGroup group, string keywords, int windowsMinimumMajorVersion, int windowsMinimumMinorVersion,
             bool notifyOnly, string path, string source, params string[] expressions)
         {
             Assert.NotNull(group);
@@ -156,7 +154,7 @@ namespace DigitalRuby.IPBanTests
             Assert.AreEqual(LogLevel.Warning, group.LogLevel);
         }
 
-        private void AssertEventViewer(IPBanConfig cfg)
+        private static void AssertEventViewer(IPBanConfig cfg)
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -202,9 +200,11 @@ namespace DigitalRuby.IPBanTests
                 Assert.IsNotNull(cfg);
                 Assert.AreEqual(TimeSpan.FromDays(1.0), cfg.BanTimes.First());
                 Assert.AreEqual(1, cfg.BanTimes.Length);
-                Assert.IsEmpty(cfg.BlackList);
-                Assert.IsEmpty(cfg.BlackListRegex);
+                Assert.IsEmpty(cfg.BlacklistFilter.IPAddressRanges);
+                Assert.IsTrue(string.IsNullOrEmpty(cfg.BlacklistFilter.Regex?.ToString()));
                 Assert.IsFalse(cfg.ClearBannedIPAddressesOnRestart);
+                Assert.IsFalse(cfg.ClearFailedLoginsOnSuccessfulLogin);
+                Assert.IsFalse(cfg.ProcessInternalIPAddresses);
                 Assert.AreEqual(TimeSpan.FromSeconds(15.0), cfg.CycleTime);
                 Assert.AreEqual(TimeSpan.FromDays(1.0), cfg.ExpireTime);
                 Assert.AreEqual("https://checkip.amazonaws.com/", cfg.ExternalIPAddressUrl);
@@ -218,8 +218,8 @@ namespace DigitalRuby.IPBanTests
                 Assert.IsTrue(cfg.UseDefaultBannedIPAddressHandler);
                 Assert.IsEmpty(cfg.UserNameWhitelist);
                 Assert.IsEmpty(cfg.UserNameWhitelistRegex);
-                Assert.IsEmpty(cfg.Whitelist);
-                Assert.IsEmpty(cfg.WhitelistRegex);
+                Assert.IsEmpty(cfg.WhitelistFilter.IPAddressRanges);
+                Assert.IsTrue(string.IsNullOrEmpty(cfg.WhitelistFilter.Regex?.ToString()));
                 Assert.AreEqual(0, cfg.ExtraRules.Count);
                 Assert.AreEqual(cfg.FirewallUriRules.Trim(), "EmergingThreats,01:00:00:00,https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt");
 
@@ -245,7 +245,7 @@ namespace DigitalRuby.IPBanTests
                 "<appSettings><add key='Whitelist' value='99.99.99.99?TestIP?2020-05-25," +
                 "88.88.88.88?TestIP2?2020-05-24' /></appSettings></configuration>",
                 DefaultDnsLookup.Instance);
-            Assert.AreEqual(string.Join(",", config.Whitelist.OrderBy(i => i)), "88.88.88.88,99.99.99.99");
+            Assert.AreEqual(string.Join(",", config.WhitelistFilter.IPAddressRanges.OrderBy(i => i)), "88.88.88.88,99.99.99.99");
             Assert.IsTrue(config.IsWhitelisted("99.99.99.99"));
             Assert.IsTrue(config.IsWhitelisted("88.88.88.88"));
             Assert.IsFalse(config.IsWhitelisted("77.77.77.77"));
@@ -257,8 +257,8 @@ namespace DigitalRuby.IPBanTests
             IPBanConfig config = IPBanConfig.LoadFromXml("<?xml version='1.0'?><configuration>" +
                 "<appSettings><add key='Whitelist' value='test.com' /></appSettings></configuration>",
                 this);
-            Assert.IsTrue(config.IsWhitelisted("99.88.77.66"));
-            Assert.IsFalse(config.IsBlackListed("99.88.77.66"));
+            Assert.IsTrue(config.WhitelistFilter.IsFiltered("99.88.77.66"));
+            Assert.IsFalse(config.BlacklistFilter.IsFiltered("99.88.77.66"));
         }
 
         [Test]
@@ -267,8 +267,8 @@ namespace DigitalRuby.IPBanTests
             IPBanConfig config = IPBanConfig.LoadFromXml("<?xml version='1.0'?><configuration>" +
                 "<appSettings><add key='Blacklist' value='test.com' /></appSettings></configuration>",
                 this);
-            Assert.IsFalse(config.IsWhitelisted("99.88.77.66"));
-            Assert.IsTrue(config.IsBlackListed("99.88.77.66"));
+            Assert.IsFalse(config.WhitelistFilter.IsFiltered("99.88.77.66"));
+            Assert.IsTrue(config.BlacklistFilter.IsFiltered("99.88.77.66"));
         }
 
         public Task<IPAddress[]> GetHostAddressesAsync(string hostNameOrAddress)
@@ -277,6 +277,11 @@ namespace DigitalRuby.IPBanTests
             {
                 return Task.FromResult<IPAddress[]>(new IPAddress[] { IPAddress.Parse("99.88.77.66") });
             }
+            throw new NotImplementedException();
+        }
+
+        Task<IPHostEntry> IDnsLookup.GetHostEntryAsync(string hostNameOrAddress)
+        {
             throw new NotImplementedException();
         }
 

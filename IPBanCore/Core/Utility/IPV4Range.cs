@@ -23,8 +23,6 @@ SOFTWARE.
 */
 
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace DigitalRuby.IPBanCore
 {
@@ -63,7 +61,7 @@ namespace DigitalRuby.IPBanCore
 
         public override bool Equals(object obj)
         {
-            if (!(obj is IPV4Range range))
+            if (obj is not IPV4Range range)
             {
                 return false;
             }
@@ -95,10 +93,10 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Conver to an ip address range
+        /// Convert to an ip address range
         /// </summary>
         /// <returns>IPAddressRange</returns>
-        public IPAddressRange ToIPAddressRange() => new(Begin.ToIPAddress(), End.ToIPAddress());
+        public IPAddressRange ToIPAddressRange() => new(Begin.ToIPAddress(), End.ToIPAddress(), true);
 
         /// <summary>
         /// IComparer against another IPV4Range

@@ -22,14 +22,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using DigitalRuby.IPBanCore;
+
+using NUnit.Framework;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-
-using DigitalRuby.IPBanCore;
-
-using NUnit.Framework;
 
 namespace DigitalRuby.IPBanTests
 {
@@ -295,9 +295,9 @@ namespace DigitalRuby.IPBanTests
                 LoginHandler = this,
                 Source = source,
                 PathAndMask = pathAndMask,
-                RegexFailure = failureRegex,
+                RegexFailure = IPBanConfig.ParseRegex(failureRegex, true),
                 RegexFailureTimestampFormat = failureRegexTimestampFormat,
-                RegexSuccess = successRegex,
+                RegexSuccess = IPBanConfig.ParseRegex(successRegex, true),
                 RegexSuccessTimestampFormat = successRegexTimestampFormat
             };
             LogFileScanner scanner = new IPBanLogFileScanner(options);

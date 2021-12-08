@@ -24,14 +24,14 @@ SOFTWARE.
 
 #region Imports
 
+using Newtonsoft.Json;
+
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Serialization;
-
-using Newtonsoft.Json;
 
 #endregion Imports
 
@@ -58,7 +58,7 @@ namespace DigitalRuby.IPBanCore
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string XPath
         {
-            get { return xpath; }
+            get => xpath;
             set
             {
                 xpath = value;
@@ -74,10 +74,10 @@ namespace DigitalRuby.IPBanCore
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.XPathRegex))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public ExtensionMethods.XmlCData Regex
+        public XmlCData Regex
         {
-            get { return regex; }
-            set { RegexObject = IPBanConfig.ParseRegex(regex = value); }
+            get => regex;
+            set => RegexObject = IPBanConfig.ParseRegex(regex = value);
         }
 
         /// <summary>
@@ -142,7 +142,7 @@ namespace DigitalRuby.IPBanCore
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string Keywords
         {
-            get { return keywords; }
+            get => keywords;
             set
             {
                 keywords = value;
@@ -150,7 +150,7 @@ namespace DigitalRuby.IPBanCore
                 // parse, removing any 0x prefix
                 if (value.StartsWith("0x"))
                 {
-                    value = value.Substring(2);
+                    value = value[2..];
                 }
                 KeywordsULONG = ulong.Parse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
             }
@@ -158,7 +158,7 @@ namespace DigitalRuby.IPBanCore
 
         public void AppendQueryString(StringBuilder builder, int id = 1)
         {
-            ulong keywordsDecimal = ulong.Parse(Keywords.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+            ulong keywordsDecimal = ulong.Parse(Keywords[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
             builder.Append("<Query Id='");
             builder.Append(id.ToStringInvariant());
             builder.Append("' Path='");

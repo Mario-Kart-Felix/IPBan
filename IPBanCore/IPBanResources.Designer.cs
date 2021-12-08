@@ -88,6 +88,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Allowed Ports.
+        /// </summary>
+        public static string AllowedPorts {
+            get {
+                return ResourceManager.GetString("AllowedPorts", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Allowed port/port-ranges (comma separated). Empty to not allow any ports. Example: 80, 443, 500-510. Only supported on WinDivert and WFP firewalls..
+        /// </summary>
+        public static string AllowedPortsTooltip {
+            get {
+                return ResourceManager.GetString("AllowedPortsTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Allow Ports.
         /// </summary>
         public static string AllowPorts {
@@ -286,6 +304,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to First Failed Login.
+        /// </summary>
+        public static string CountryBlacklistFirstFailedLogin {
+            get {
+                return ResourceManager.GetString("CountryBlacklistFirstFailedLogin", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whether to wait until first failed login from a bad country before banning (checked) or to pro-actively add the entire country to the firewall if possible (unchecked). If checked, allowed ports is ignored..
+        /// </summary>
+        public static string CountryBlacklistFirstFailedLoginTooltip {
+            get {
+                return ResourceManager.GetString("CountryBlacklistFirstFailedLoginTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Country Blacklist Interval.
         /// </summary>
         public static string CountryBlacklistInterval {
@@ -336,6 +372,15 @@ namespace DigitalRuby.IPBanCore {
         public static string CreateWhitelistFirewallRuleTooltip {
             get {
                 return ResourceManager.GetString("CreateWhitelistFirewallRuleTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Any changes made to the administrator account will propagate to clients automatically..
+        /// </summary>
+        public static string CredentialPropagation {
+            get {
+                return ResourceManager.GetString("CredentialPropagation", resourceCulture);
             }
         }
         
@@ -952,6 +997,15 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Local IP Address.
+        /// </summary>
+        public static string LocalIP {
+            get {
+                return ResourceManager.GetString("LocalIP", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Ping Interval.
         /// </summary>
         public static string LogFilePingInterval {
@@ -1312,6 +1366,24 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Process Internal IP Addresses.
+        /// </summary>
+        public static string ProcessInternalIPAddresses {
+            get {
+                return ResourceManager.GetString("ProcessInternalIPAddresses", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whether to process internal ip addresses.
+        /// </summary>
+        public static string ProcessInternalIPAddressesTooltip {
+            get {
+                return ResourceManager.GetString("ProcessInternalIPAddressesTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Process to Run on Ban.
         /// </summary>
         public static string ProcessToRunOnBan {
@@ -1573,7 +1645,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Body template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type.
+        ///   Looks up a localized string similar to Body template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type, {9} = source..
         /// </summary>
         public static string SmtpBodyTemplateTooltip {
             get {
@@ -1645,7 +1717,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Subject template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type.
+        ///   Looks up a localized string similar to Subject template for sent mail. {0} = machine name, {1} = user name, {2} = local ip address, {3} = remote ip address, {4} = remote host name, {5} = city, {6} = region, {7} = country, {8} = event type, {9} = source..
         /// </summary>
         public static string SmtpSubjectTemplateTooltip {
             get {
@@ -1852,7 +1924,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to An unexpected error has ocurred. Please email support@digitalruby.com for help..
+        ///   Looks up a localized string similar to An unexpected error has ocurred. Please email support@ipban.com for help..
         /// </summary>
         public static string UnexpectedError {
             get {
@@ -1866,6 +1938,15 @@ namespace DigitalRuby.IPBanCore {
         public static string Update {
             get {
                 return ResourceManager.GetString("Update", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Update Available.
+        /// </summary>
+        public static string UpdateAvailable {
+            get {
+                return ResourceManager.GetString("UpdateAvailable", resourceCulture);
             }
         }
         

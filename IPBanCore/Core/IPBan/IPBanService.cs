@@ -174,14 +174,14 @@ namespace DigitalRuby.IPBanCore
                 Group userNameGroup = match.Groups["username"];
                 if (userNameGroup != null && userNameGroup.Success)
                 {
-                    userName = (userName ?? userNameGroup.Value.Trim(regexTrimChars));
+                    userName ??= userNameGroup.Value.Trim(regexTrimChars);
                 }
 
                 // check for source
                 Group sourceGroup = match.Groups["source"];
                 if (sourceGroup != null && sourceGroup.Success)
                 {
-                    source = (source ?? sourceGroup.Value.Trim(regexTrimChars));
+                    source ??= sourceGroup.Value.Trim(regexTrimChars);
                 }
 
                 // check for groups with a custom source name
@@ -190,7 +190,7 @@ namespace DigitalRuby.IPBanCore
                     if (group.Success && group.Name != null &&
                         string.IsNullOrWhiteSpace(source) && group.Name.StartsWith(customSourcePrefix))
                     {
-                        source = group.Name.Substring(customSourcePrefix.Length);
+                        source = group.Name[customSourcePrefix.Length..];
                     }
                 }
 
@@ -295,6 +295,7 @@ namespace DigitalRuby.IPBanCore
 
             try
             {
+                GC.SuppressFinalize(this);
                 cycleLock.WaitAsync().Sync();
                 IsRunning = false;
                 GetUrl(UrlType.Stop).Sync();
@@ -397,28 +398,6 @@ namespace DigitalRuby.IPBanCore
         public Task<bool> WaitAsync(int timeoutMilliseconds)
         {
             return stopEvent.WaitAsync(timeoutMilliseconds);
-        }
-
-        /// <summary>
-        /// Check if an entry is whitelisted
-        /// </summary>
-        /// <param name="entry">Entry</param>
-        /// <returns>True if whitelisted, false otherwise</returns>
-        public bool IsWhitelisted(string entry)
-        {
-            IPBanConfig config = Config;
-            return (config != null && config.IsWhitelisted(entry));
-        }
-
-        /// <summary>
-        /// Check if an ip address range is whitelisted
-        /// </summary>
-        /// <param name="range">Range</param>
-        /// <returns>True if whitelisted, false otherwise</returns>
-        public bool IsWhitelisted(IPAddressRange range)
-        {
-            IPBanConfig config = Config;
-            return (config != null && Config.IsWhitelisted(range));
         }
 
         /// <summary>
@@ -558,10 +537,16 @@ namespace DigitalRuby.IPBanCore
         /// <param name="configFileName">Config file name</param>
         /// <param name="defaultBannedIPAddressHandlerUrl">Url for banned ip handling or null to not handle banned ip</param>
         /// <param name="configFileModifier">Change config file (param are file text, returns new file text)</param>
+        /// <param name="cleanup">Whether to cleanup files first before starting the service</param>
         /// <returns>Service</returns>
         public static T CreateAndStartIPBanTestService<T>(string directory = null, string configFileName = null, string defaultBannedIPAddressHandlerUrl = null,
-            Func<string, string> configFileModifier = null) where T : IPBanService
+            Func<string, string> configFileModifier = null, bool cleanup = true) where T : IPBanService
         {
+            if (!UnitTestDetector.Running)
+            {
+                return default;
+            }
+
             NLog.Time.TimeSource.Current = new TestTimeSource();
             string defaultNLogConfig = $@"<?xml version=""1.0""?>
 <nlog xmlns=""http://www.nlog-project.org/schemas/NLog.xsd"" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" throwExceptions=""false"" internalLogToConsole=""false"" internalLogToConsoleError=""false"" internalLogLevel=""Trace"">
@@ -576,13 +561,11 @@ namespace DigitalRuby.IPBanCore
 </nlog>";
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "nlog.config"), defaultNLogConfig);
 
-            string logFilePath = Path.Combine(AppContext.BaseDirectory, "logfile.txt");
-            if (File.Exists(logFilePath))
+            if (cleanup)
             {
-                File.Delete(logFilePath);
+                CleanupIPBanTestFiles();
             }
 
-            ExtensionMethods.RemoveDatabaseFiles();
             DefaultHttpRequestMaker.DisableLiveRequests = true;
             if (string.IsNullOrWhiteSpace(directory))
             {
@@ -623,11 +606,35 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Cleanup test files
+        /// </summary>
+        public static void CleanupIPBanTestFiles()
+        {
+            if (!UnitTestDetector.Running)
+            {
+                return;
+            }
+
+            DefaultHttpRequestMaker.DisableLiveRequests = true;
+            string logFilePath = Path.Combine(AppContext.BaseDirectory, "logfile.txt");
+            if (File.Exists(logFilePath))
+            {
+                File.Delete(logFilePath);
+            }
+            ExtensionMethods.RemoveDatabaseFiles();
+        }
+
+        /// <summary>
         /// Dispose of an IPBanService created with CreateAndStartIPBanTestService
         /// </summary>
         /// <param name="service">Service to dispose</param>
         public static void DisposeIPBanTestService(IPBanService service)
         {
+            if (!UnitTestDetector.Running)
+            {
+                return;
+            }
+
             if (service != null)
             {
                 if (File.Exists(Path.Combine(AppContext.BaseDirectory, "nlog.config")))
@@ -642,5 +649,11 @@ namespace DigitalRuby.IPBanCore
                 IPBanService.UtcNow = default;
             }
         }
+
+        /// <inheritdoc />
+        public bool IsWhitelisted(string entry) => Config.IsWhitelisted(entry);
+
+        /// <inheritdoc />
+        public bool IsWhitelisted(IPAddressRange range) => Config.IsWhitelisted(range);
     }
 }

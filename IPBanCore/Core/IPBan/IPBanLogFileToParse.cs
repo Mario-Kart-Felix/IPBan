@@ -22,11 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using Newtonsoft.Json;
+
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Xml.Serialization;
-
-using Newtonsoft.Json;
 
 namespace DigitalRuby.IPBanCore
 {
@@ -61,7 +61,7 @@ namespace DigitalRuby.IPBanCore
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.FailedLoginRegex))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public ExtensionMethods.XmlCData FailedLoginRegex { get; set; } = string.Empty;
+        public XmlCData FailedLoginRegex { get; set; } = string.Empty;
 
         /// <summary>
         /// Failed login timestamp format
@@ -88,7 +88,7 @@ namespace DigitalRuby.IPBanCore
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.SuccessfulLoginRegex))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public ExtensionMethods.XmlCData SuccessfulLoginRegex { get; set; } = string.Empty;
+        public XmlCData SuccessfulLoginRegex { get; set; } = string.Empty;
 
         /// <summary>
         /// Successful login timestamp format
@@ -115,7 +115,7 @@ namespace DigitalRuby.IPBanCore
         [Required(AllowEmptyStrings = true)]
         [LocalizedDisplayName(nameof(IPBanResources.PlatformRegex))]
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-        public ExtensionMethods.XmlCData PlatformRegex { get; set; } = string.Empty;
+        public XmlCData PlatformRegex { get; set; } = string.Empty;
 
         /// <summary>
         /// How often in milliseconds to ping the file

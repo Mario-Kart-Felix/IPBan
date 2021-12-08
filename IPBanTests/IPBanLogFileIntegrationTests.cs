@@ -22,16 +22,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using DigitalRuby.IPBanCore;
+
+using NUnit.Framework;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
-using DigitalRuby.IPBanCore;
-
-using NUnit.Framework;
 
 namespace DigitalRuby.IPBanTests
 {
@@ -45,7 +45,7 @@ namespace DigitalRuby.IPBanTests
         [SetUp]
         public void Setup()
         {
-            
+
         }
 
         [TearDown]
@@ -57,7 +57,7 @@ namespace DigitalRuby.IPBanTests
             service = null;
         }
 
-        public void Dispose() { }
+        public void Dispose() => GC.SuppressFinalize(this);
 
         Task IIPBanDelegate.LoginAttemptFailed(string ip, string source, string userName, string machineGuid, string osName, string osVersion, int count, DateTime timestamp)
         {
@@ -91,14 +91,24 @@ namespace DigitalRuby.IPBanTests
                 Assert.AreEqual("user@example.com", successfulEvents[i].UserName);
             }
 
-            Assert.AreEqual(3, failedEvents.Count);
+            // 37.49.225.153, UserName: p.kurowicki@gios.gov.pl, Source: MSExchange, Count: 1, Type: FailedLogin, Timestamp: 6/26/2021 3:01:36 PM}
+            Assert.AreEqual(5, failedEvents.Count);
             Assert.AreEqual("90.30.30.30", failedEvents[0].IPAddress);
             Assert.AreEqual("180.60.60.60", failedEvents[1].IPAddress);
             Assert.AreEqual("109.75.46.81", failedEvents[2].IPAddress);
+            Assert.AreEqual("27.255.75.110", failedEvents[3].IPAddress);
+            Assert.AreEqual("37.49.225.153", failedEvents[4].IPAddress);
             for (int i = 0; i < failedEvents.Count; i++)
             {
                 Assert.AreEqual("MSExchange", failedEvents[i].Source);
-                Assert.AreEqual("user@example.com", failedEvents[i].UserName);
+                if (i != failedEvents.Count - 2)
+                {
+                    Assert.AreEqual("user@example.com", failedEvents[i].UserName);
+                }
+                else
+                {
+                    Assert.AreEqual(string.Empty, failedEvents[i].UserName);
+                }
                 Assert.AreEqual(IPAddressEventType.FailedLogin, failedEvents[i].Type);
             }
         }

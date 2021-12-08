@@ -32,7 +32,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
@@ -53,126 +52,6 @@ namespace DigitalRuby.IPBanCore
     /// </summary>
     public static class ExtensionMethods
     {
-        private class LockedEnumerable<T> : IEnumerator<T>
-        {
-            private readonly IEnumerable<T> obj;
-            private readonly IEnumerator<T> e;
-            public LockedEnumerable(IEnumerable<T> obj)
-            {
-                obj.ThrowIfNull();
-                Monitor.Enter(obj);
-                this.obj = obj;
-                e = obj.GetEnumerator();
-            }
-
-            public T Current => e.Current;
-            object IEnumerator.Current => e.Current;
-
-            public void Dispose()
-            {
-                Monitor.Exit(obj);
-            }
-
-            public bool MoveNext()
-            {
-                return e.MoveNext();
-            }
-
-            public void Reset()
-            {
-                e.Reset();
-            }
-        }
-
-        /// <summary>
-        /// Nasty hack for stupid xml serializer that cannot simply mark a property string as cdata
-        /// </summary>
-        [System.Serializable]
-        public class XmlCData : IXmlSerializable
-        {
-            private string value;
-
-            /// <summary>
-            /// Allow direct assignment from string:
-            /// CData cdata = "abc";
-            /// </summary>
-            /// <param name="value"></param>
-            /// <returns></returns>
-            public static implicit operator XmlCData(string value)
-            {
-                return new XmlCData(value);
-            }
-
-            /// <summary>
-            /// Allow direct assigment to string
-            /// </summary>
-            /// <param name="cdata"></param>
-            /// <returns>String or null if cdata is null</returns>
-            public static implicit operator string(XmlCData cdata)
-            {
-                return cdata?.value;
-            }
-
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            public XmlCData() : this(string.Empty)
-            {
-            }
-
-            /// <summary>
-            /// Constructor
-            /// </summary>
-            /// <param name="value">Value</param>
-            public XmlCData(string value)
-            {
-                this.value = (value ?? string.Empty).Trim();
-            }
-
-            /// <summary>
-            /// ToString
-            /// </summary>
-            /// <returns>String</returns>
-            public override string ToString()
-            {
-                return value;
-            }
-
-            /// <summary>
-            /// Get xml schema
-            /// </summary>
-            /// <returns>Null</returns>
-            public System.Xml.Schema.XmlSchema GetSchema()
-            {
-                return null;
-            }
-
-            /// <summary>
-            /// Read xml
-            /// </summary>
-            /// <param name="reader">Reader</param>
-            public void ReadXml(System.Xml.XmlReader reader)
-            {
-                value = reader.ReadElementString();
-            }
-
-            /// <summary>
-            /// Write xml
-            /// </summary>
-            /// <param name="writer">Writer</param>
-            public void WriteXml(System.Xml.XmlWriter writer)
-            {
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    writer.WriteString(string.Empty);
-                }
-                else
-                {
-                    writer.WriteCData("\n" + value + "\n");
-                }
-            }
-        }
-
         /// <summary>
         /// UTF8 encoder without prefix bytes
         /// </summary>
@@ -194,11 +73,27 @@ namespace DigitalRuby.IPBanCore
         /// <param name="name">Parameter name</param>
         /// <param name="message">Message</param>
         /// <returns>Object</returns>
-        public static T ThrowIfNull<T>(this T obj, string name = null, string message = null) where T : class
+        public static T ThrowIfNull<T>(this T obj, string name = null, string message = null)
         {
             if (obj is null)
             {
                 throw new ArgumentNullException(name ?? string.Empty, message);
+            }
+            return obj;
+        }
+
+        /// <summary>
+        /// Throw ArgumentException if obj is null
+        /// </summary>
+        /// <param name="obj">Object</param>
+        /// <param name="name">Parameter name</param>
+        /// <param name="message">Message</param>
+        /// <returns>Object</returns>
+        public static T ThrowArgumentExceptionIfNull<T>(this T obj, string name = null, string message = null)
+        {
+            if (obj is null)
+            {
+                throw new ArgumentException(name ?? string.Empty, message);
             }
             return obj;
         }
@@ -457,6 +352,17 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Clean ip address - remove scope and convert to ipv4 if ipv6 mapped to ipv4
+        /// </summary>
+        /// <param name="ip">IP address</param>
+        /// <param name="ownsIP">Whether this ip is owned by the caller</param>
+        /// <returns>Cleaned ip address</returns>
+        public static System.Net.IPAddress Clean(this System.Net.IPAddress ip, bool ownsIP = false)
+        {
+            return ip.RemoveScopeId(ownsIP).MapToIPv4IfIPv6();
+        }
+
+        /// <summary>
         /// An extension method to determine if an IP address is internal, as specified in RFC1918
         /// </summary>
         /// <param name="ip">The IP address that will be tested</param>
@@ -465,10 +371,7 @@ namespace DigitalRuby.IPBanCore
         {
             try
             {
-                if (ip.IsIPv4MappedToIPv6)
-                {
-                    ip = ip.MapToIPv4();
-                }
+                ip = ip.Clean();
                 if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                 {
                     byte[] bytes = ip.GetAddressBytes();
@@ -476,20 +379,14 @@ namespace DigitalRuby.IPBanCore
                     {
                         return true;
                     }
-                    switch (bytes[0])
+                    return bytes[0] switch
                     {
-                        case 10:
-                        case 127:
-                            return true;
-                        case 172:
-                            return bytes[1] >= 16 && bytes[1] < 32;
-                        case 192:
-                            return bytes[1] == 168;
-                        case 0:
-                            return true;
-                        default:
-                            return false;
-                    }
+                        10 or 127 => true,
+                        172 => bytes[1] >= 16 && bytes[1] < 32,
+                        192 => bytes[1] == 168,
+                        0 => true,
+                        _ => false,
+                    };
                 }
 
                 string addressAsString = ip.ToString();
@@ -615,13 +512,12 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Get a UInt128 from an ipv6 address. The UInt128 will be in the byte order of the CPU by default.
+        /// Get a UInt128 from an ipv6 address. The UInt128 will be in the byte order of the CPU.
         /// </summary>
         /// <param name="ip">IPV6 address</param>
-        /// <param name="swap">Whether to swap bytes for CPU order</param>
         /// <returns>UInt128</returns>
         /// <exception cref="InvalidOperationException">Not an ipv6 address</exception>
-        public static unsafe UInt128 ToUInt128(this IPAddress ip, bool swap = true)
+        public static unsafe UInt128 ToUInt128(this IPAddress ip)
         {
             if (ip is null || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
             {
@@ -629,20 +525,14 @@ namespace DigitalRuby.IPBanCore
             }
 
             byte[] bytes = ip.GetAddressBytes();
-            if (swap)
+            if (BitConverter.IsLittleEndian)
             {
+                // reverse big endian (network order) to little endian
                 bytes = bytes.Reverse().ToArray();
-                ulong l1 = BitConverter.ToUInt64(bytes, 0);
-                ulong l2 = BitConverter.ToUInt64(bytes, 8);
-                return new UInt128(l2, l1);
             }
-            else
-            {
-                bytes = bytes.ToArray();
-                ulong l1 = BitConverter.ToUInt64(bytes, 0);
-                ulong l2 = BitConverter.ToUInt64(bytes, 8);
-                return new UInt128(l1, l2);
-            }
+            ulong l1 = BitConverter.ToUInt64(bytes, 0);
+            ulong l2 = BitConverter.ToUInt64(bytes, 8);
+            return new UInt128(l2, l1);
         }
 
         /// <summary>
@@ -659,6 +549,139 @@ namespace DigitalRuby.IPBanCore
                 ulong* ulongPtr = (ulong*)ptr;
                 return new UInt128(*ulongPtr, *(++ulongPtr));
             }
+        }
+
+        /// <summary>
+        /// Increment an ip address
+        /// </summary>
+        /// <param name="ipAddress">Ip address to increment</param>
+        /// <param name="result">Incremented ip address or null if failure</param>
+        /// <returns>True if incremented, false if ip address was at max value</returns>
+        public static bool TryIncrement(this IPAddress ipAddress, out IPAddress result)
+        {
+            byte[] bytes = ipAddress.GetAddressBytes();
+
+            for (int k = bytes.Length - 1; k >= 0; k--)
+            {
+                if (bytes[k] == byte.MaxValue)
+                {
+                    bytes[k] = 0;
+                    continue;
+                }
+
+                bytes[k]++;
+
+                result = new IPAddress(bytes);
+                return true;
+            }
+
+            // all bytes are already max values, no increment possible
+            result = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Decrement an ip address
+        /// </summary>
+        /// <param name="ipAddress">Ip address to decrement</param>
+        /// <param name="result">Decremented ip address or null if failure</param>
+        /// <returns>True if decremented, false if ip address was at min value</returns>
+        public static bool TryDecrement(this IPAddress ipAddress, out IPAddress result)
+        {
+            byte[] bytes = ipAddress.GetAddressBytes();
+
+            for (int k = bytes.Length - 1; k >= 0; k--)
+            {
+                if (bytes[k] == 0)
+                {
+                    bytes[k] = byte.MaxValue;
+                    continue;
+                }
+
+                bytes[k]--;
+                result = new IPAddress(bytes);
+                return true;
+            }
+
+            // all bytes are already min values, no decrement possible
+            result = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Compare two ip address for sort order
+        /// </summary>
+        /// <param name="ip1">First ip address</param>
+        /// <param name="ip2">Second ip address</param>
+        /// <returns>CompareTo result (negative less than, 0 equal, 1 greater than)</returns>
+        public static int CompareTo(this IPAddress ip1, IPAddress ip2)
+        {
+            if (ip1 is null)
+            {
+                return (ip2 is null ? 0 : -1);
+            }
+            else if (ip1.AddressFamily != ip2.AddressFamily)
+            {
+                return ip1.AddressFamily.CompareTo(ip2.AddressFamily);
+            }
+
+            byte[] bytes1 = ip1.GetAddressBytes();
+            byte[] bytes2 = ip2.GetAddressBytes();
+            for (int byteIndex = 0; byteIndex < bytes1.Length; byteIndex++)
+            {
+                int result = bytes1[byteIndex].CompareTo(bytes2[byteIndex]);
+                if (result != 0)
+                {
+                    return result;
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Get a firewall ip address, clean and normalize
+        /// </summary>
+        /// <param name="ipAddress">IP address string</param>
+        /// <param name="normalizedIP">The normalized ip string, ready to go in the firewall or null if invalid ip address</param>
+        /// <returns>True if ip address can go in the firewall, false otherwise</returns>
+        public static bool TryNormalizeIPAddress(this string ipAddress, out string normalizedIP)
+        {
+            normalizedIP = (ipAddress ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedIP) ||
+                normalizedIP == "-" ||
+                normalizedIP == "0.0.0.0" ||
+                normalizedIP == "127.0.0.1" ||
+                normalizedIP == "::0" ||
+                normalizedIP == "::1" ||
+                !IPAddressRange.TryParse(normalizedIP, out IPAddressRange range))
+            {
+                // try parsing assuming the ip is followed by a port
+                int pos = normalizedIP.LastIndexOf(':');
+                if (pos >= 0)
+                {
+                    normalizedIP = normalizedIP.Substring(0, pos);
+                    if (!IPAddressRange.TryParse(normalizedIP, out range))
+                    {
+                        normalizedIP = null;
+                        return false;
+                    }
+                }
+                else
+                {
+                    normalizedIP = null;
+                    return false;
+                }
+            }
+            try
+            {
+                normalizedIP = (range.Single ? range.Begin.ToString() : range.ToCidrString());
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug("Failed to normalize ip {0}, it is not a single ip or cidr range: {1}", ipAddress, ex);
+                return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -925,7 +948,7 @@ namespace DigitalRuby.IPBanCore
             {
                 // eat exception, delicious
             }
-            return new System.Net.IPAddress[0];
+            return Array.Empty<IPAddress>();
         }
 
         /// <summary>
@@ -940,10 +963,12 @@ namespace DigitalRuby.IPBanCore
         }
 
 #pragma warning disable IDE1006
+#pragma warning disable CA1401
 
         [DllImport("libc")]
         public static extern uint getuid();
 
+#pragma warning restore CA1401
 #pragma warning restore IDE1006
 
 #if !IPBAN_API
@@ -1297,6 +1322,10 @@ namespace DigitalRuby.IPBanCore
             return tcs.Task;
         }
 
+        /// <summary>
+        /// Cleanup database files
+        /// </summary>
+        /// <param name="folder">Folder</param>
         public static void RemoveDatabaseFiles(string folder = null)
         {
             folder ??= AppContext.BaseDirectory;
@@ -1314,5 +1343,46 @@ namespace DigitalRuby.IPBanCore
                 ExtensionMethods.FileDeleteWithRetry(file, 1000);
             }
         }
+
+        /// <summary>
+        /// Remove the scope id from the ip address if there is a scope id
+        /// </summary>
+        /// <param name="ipAddress">IP address to remove scope id from</param>
+        /// <param name="ownsIP">Whether this ip is owned by the caller</param>
+        /// <returns>This ip address if no scope id removed, otherwise a new ip address with scope removed if ownsIP is false, or the same ip
+        /// with scope removed if ownsIP is true</returns>
+        private static IPAddress RemoveScopeId(this IPAddress ipAddress, bool ownsIP = false)
+        {
+            if (ipAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                if (ownsIP)
+                {
+                    ipAddress.ScopeId = 0;
+                }
+                else
+                {
+                    return new IPAddress(ipAddress.GetAddressBytes());
+                }
+            }
+            return ipAddress;
         }
+
+        /// <summary>
+        /// Map ip address to ipv4 if it is an ipv6 address mapped to ipv4
+        /// </summary>
+        /// <param name="ip">IP address</param>
+        /// <returns>IP address mapped to ipv4 if mapped to ipv4 in ipv6 format</returns>
+        private static System.Net.IPAddress MapToIPv4IfIPv6(this System.Net.IPAddress ip)
+        {
+            if (ip is null)
+            {
+                return ip;
+            }
+            else if (ip.IsIPv4MappedToIPv6)
+            {
+                return ip.MapToIPv4();
+            }
+            return ip;
+        }
+    }
 }

@@ -30,11 +30,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
 
@@ -90,6 +87,7 @@ namespace DigitalRuby.IPBanCore
             /// </summary>
             public void Dispose()
             {
+                GC.SuppressFinalize(this);
                 config.WriteConfigAsync(origConfig).Sync();
             }
 
@@ -104,18 +102,9 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public const string DefaultFileName = "ipban.config";
 
-        private static readonly HashSet<string> ignoreListEntries = new()
-        {
-            "0.0.0.0", "::0", "127.0.0.1", "::1", "localhost"
-        };
-
         private static readonly TimeSpan[] emptyTimeSpanArray = new TimeSpan[] { TimeSpan.Zero };
-        private static readonly IPBanLogFileToParse[] emptyLogFilesToParseArray = new IPBanLogFileToParse[0];
+        private static readonly IPBanLogFileToParse[] emptyLogFilesToParseArray = Array.Empty<IPBanLogFileToParse>();
         private static readonly TimeSpan maxBanTimeSpan = TimeSpan.FromDays(90.0);
-        private static readonly IEnumerable<KeyValuePair<string, object>> ipListHeaders = new KeyValuePair<string, object>[]
-        {
-            new KeyValuePair<string, object>("User-Agent", "ipban.com")
-        };
 
         private readonly Dictionary<string, string> appSettings = new(StringComparer.OrdinalIgnoreCase);
         private readonly IPBanLogFileToParse[] logFiles;
@@ -127,21 +116,12 @@ namespace DigitalRuby.IPBanCore
         private readonly int failedLoginAttemptsBeforeBan = 5;
         private readonly bool resetFailedLoginCountForUnbannedIPAddresses;
         private readonly string firewallRulePrefix = "IPBan_";
-
-        // black list data structures
-        private readonly HashSet<System.Net.IPAddress> blackList = new();
-        private readonly Regex blackListRegex;
-        private readonly HashSet<IPAddressRange> blackListRanges = new();
-        private readonly HashSet<string> blackListOther = new(StringComparer.OrdinalIgnoreCase);
-
-        // white list data structures
-        private readonly HashSet<System.Net.IPAddress> whitelist = new();
-        private readonly Regex whitelistRegex;
-        private readonly HashSet<IPAddressRange> whitelistRanges = new();
-        private readonly HashSet<string> whitelistOther = new(StringComparer.OrdinalIgnoreCase);
+        private readonly IPBanFilter whitelistFilter;
+        private readonly IPBanFilter blacklistFilter;
 
         private readonly bool clearBannedIPAddressesOnRestart;
         private readonly bool clearFailedLoginsOnSuccessfulLogin;
+        private readonly bool processInternalIPAddresses;
         private readonly HashSet<string> userNameWhitelist = new(StringComparer.Ordinal);
         private readonly int userNameWhitelistMaximumEditDistance = 2;
         private readonly Regex userNameWhitelistRegex;
@@ -155,9 +135,6 @@ namespace DigitalRuby.IPBanCore
         private readonly string getUrlConfig;
         private readonly string externalIPAddressUrl;
         private readonly string firewallUriRules;
-        private readonly IDnsLookup dns;
-        private readonly IDnsServerList dnsList;
-        private readonly IHttpRequestMaker httpRequestMaker;
         private readonly List<IPBanFirewallRule> extraRules = new();
         private readonly EventViewerExpressionsToBlock expressionsFailure;
         private readonly EventViewerExpressionsToNotify expressionsSuccess;
@@ -193,11 +170,7 @@ namespace DigitalRuby.IPBanCore
 
         private IPBanConfig(XmlDocument doc, IDnsLookup dns = null, IDnsServerList dnsList = null, IHttpRequestMaker httpRequestMaker = null)
         {
-            this.dns = dns ?? DefaultDnsLookup.Instance;
-            this.dnsList = dnsList;
-            this.httpRequestMaker = httpRequestMaker;
-
-            // deserialize with XmlDocument, the .net core Configuration class is quite buggy
+            // deserialize with XmlDocument for fine grained control
             foreach (XmlNode node in doc.SelectNodes("/configuration/appSettings/add"))
             {
                 appSettings[node.Attributes["key"].Value] = node.Attributes["value"].Value;
@@ -209,6 +182,7 @@ namespace DigitalRuby.IPBanCore
             MakeBanTimesValid(ref banTimes);
             GetConfig<bool>("ClearBannedIPAddressesOnRestart", ref clearBannedIPAddressesOnRestart);
             GetConfig<bool>("ClearFailedLoginsOnSuccessfulLogin", ref clearFailedLoginsOnSuccessfulLogin);
+            GetConfig<bool>("ProcessInternalIPAddresses", ref processInternalIPAddresses);
             GetConfig<TimeSpan>("ExpireTime", ref expireTime, TimeSpan.Zero, maxBanTimeSpan);
             if (expireTime.TotalMinutes < 1.0)
             {
@@ -222,72 +196,12 @@ namespace DigitalRuby.IPBanCore
             string whitelistRegexString = GetConfig<string>("WhitelistRegex", string.Empty);
             string blacklistString = GetConfig<string>("Blacklist", string.Empty);
             string blacklistRegexString = GetConfig<string>("BlacklistRegex", string.Empty);
-            PopulateList(whitelist, whitelistRanges, whitelistOther, ref whitelistRegex, whitelistString, whitelistRegexString);
-            PopulateList(blackList, blackListRanges, blackListOther, ref blackListRegex, blacklistString, blacklistRegexString);
-            XmlNode node2 = doc.SelectSingleNode("/configuration/ExpressionsToBlock");
-            if (node2 != null)
-            {
-                try
-                {
-                    expressionsFailure = new XmlSerializer(typeof(EventViewerExpressionsToBlock)).Deserialize(new XmlNodeReader(node2)) as EventViewerExpressionsToBlock;
-                }
-                catch (Exception ex)
-                {
-                    expressionsFailure = new EventViewerExpressionsToBlock { Groups = new List<EventViewerExpressionGroup>() };
-                    Logger.Error("Failed to load expressions to block", ex);
-                }
-                if (expressionsFailure != null)
-                {
-                    foreach (EventViewerExpressionGroup group in expressionsFailure.Groups)
-                    {
-                        foreach (EventViewerExpression expression in group.Expressions)
-                        {
-                            expression.Regex = (expression.Regex?.ToString() ?? string.Empty).Trim();
-                        }
-                    }
-                }
-            }
-            node2 = doc.SelectSingleNode("/configuration/ExpressionsToNotify");
-            if (node2 != null)
-            {
-                try
-                {
-                    expressionsSuccess = new XmlSerializer(typeof(EventViewerExpressionsToNotify)).Deserialize(new XmlNodeReader(node2)) as EventViewerExpressionsToNotify;
-                }
-                catch (Exception ex)
-                {
-                    expressionsSuccess = new EventViewerExpressionsToNotify { Groups = new List<EventViewerExpressionGroup>() };
-                    Logger.Error("Failed to load expressions to notify: {0}", ex);
-                }
-                if (expressionsSuccess != null)
-                {
-                    foreach (EventViewerExpressionGroup group in expressionsSuccess.Groups)
-                    {
-                        group.NotifyOnly = true;
-                        foreach (EventViewerExpression expression in group.Expressions)
-                        {
-                            expression.Regex = (expression.Regex?.ToString() ?? string.Empty).Trim();
-                        }
-                    }
-                }
-            }
-            try
-            {
-                XmlNode logFilesToParseNode = doc.SelectSingleNode("/configuration/LogFilesToParse");
-                if (logFilesToParseNode != null && new XmlSerializer(typeof(IPBanLogFilesToParse)).Deserialize(new XmlNodeReader(logFilesToParseNode)) is IPBanLogFilesToParse logFilesToParse)
-                {
-                    logFiles = logFilesToParse.LogFiles;
-                }
-                else
-                {
-                    logFiles = emptyLogFilesToParseArray;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Failed to load log files to parse", ex);
-                logFiles = emptyLogFilesToParseArray;
-            }
+            whitelistFilter = new IPBanFilter(whitelistString, whitelistRegexString, httpRequestMaker, dns, dnsList, null);
+            blacklistFilter = new IPBanFilter(blacklistString, blacklistRegexString, httpRequestMaker, dns, dnsList, whitelistFilter);
+            expressionsFailure = ParseEventViewer<EventViewerExpressionsToBlock>(doc, "/configuration/ExpressionsToBlock", false);
+            expressionsSuccess = ParseEventViewer<EventViewerExpressionsToNotify>(doc, "/configuration/ExpressionsToNotify", true);
+            logFiles = ParseLogFiles(doc, "/configuration/LogFilesToParse");
+
             GetConfig<string>("ProcessToRunOnBan", ref processToRunOnBan);
             processToRunOnBan = processToRunOnBan?.Trim();
             GetConfig<string>("ProcessToRunOnUnban", ref processToRunOnUnban);
@@ -330,7 +244,7 @@ namespace DigitalRuby.IPBanCore
             Xml = doc.OuterXml;
         }
 
-        private void MakeBanTimesValid(ref TimeSpan[] banTimes)
+        private static void MakeBanTimesValid(ref TimeSpan[] banTimes)
         {
             var newBanTimes = new List<TimeSpan>();
             TimeSpan max = TimeSpan.MinValue;
@@ -360,186 +274,54 @@ namespace DigitalRuby.IPBanCore
             banTimes = newBanTimes.ToArray();
         }
 
-
-        private bool IsMatch(string entry, System.Net.IPAddress entryIPAddress, HashSet<System.Net.IPAddress> set, HashSet<IPAddressRange> ranges, HashSet<string> others, Regex regex)
+        private static T ParseEventViewer<T>(XmlDocument doc, string path, bool notifyOnly) where T : EventViewerExpressions, new()
         {
-            if (!string.IsNullOrWhiteSpace(entry))
+            XmlNode node = doc.SelectSingleNode(path);
+            T eventViewerExpressions = null;
+            if (node != null)
             {
-                entry = entry.Trim().Normalize();
-                if (entryIPAddress != null || System.Net.IPAddress.TryParse(entry, out entryIPAddress))
+                try
                 {
-                    // direct ip match in set or match in range of ip address list
-                    if (set.Contains(entryIPAddress) || ranges.Any(r => r.Contains(entryIPAddress)))
+                    eventViewerExpressions = new XmlSerializer(typeof(T)).Deserialize(new XmlNodeReader(node)) as T;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Failed to load event viewer expressions of type " + typeof(T).FullName, ex);
+                    eventViewerExpressions = new T { Groups = new List<EventViewerExpressionGroup>() };
+                }
+                foreach (EventViewerExpressionGroup group in eventViewerExpressions.Groups)
+                {
+                    group.NotifyOnly = notifyOnly;
+                    foreach (EventViewerExpression expression in group.Expressions)
                     {
-                        return true;
+                        expression.Regex = (expression.Regex?.ToString() ?? string.Empty).Trim();
                     }
-                }
-                else if (others.Contains(entry))
-                {
-                    // direct string match in other set
-                    return true;
-                }
-
-                // fallback to regex match
-                if (!(regex is null))
-                {
-                    // try the regex as last resort
-                    return regex.IsMatch(entry);
                 }
             }
-
-            return false;
+            return eventViewerExpressions;
         }
 
-        private void PopulateList(HashSet<System.Net.IPAddress> set,
-            HashSet<IPAddressRange> ranges,
-            HashSet<string> others,
-            ref Regex regex,
-            string setValue,
-            string regexValue)
+        private static IPBanLogFileToParse[] ParseLogFiles(XmlDocument doc, string path)
         {
-            setValue = (setValue ?? string.Empty).Trim();
-            regexValue = (regexValue ?? string.Empty).Replace("*", @"[0-9A-Fa-f]+?").Trim();
-            set.Clear();
-            regex = null;
-
-            void AddIPAddressRange(IPAddressRange range)
+            IPBanLogFileToParse[] logFiles;
+            try
             {
-                if (range.Begin.Equals(range.End))
+                XmlNode logFilesToParseNode = doc.SelectSingleNode(path);
+                if (logFilesToParseNode != null && new XmlSerializer(typeof(IPBanLogFilesToParse)).Deserialize(new XmlNodeReader(logFilesToParseNode)) is IPBanLogFilesToParse logFilesToParse)
                 {
-                    lock (set)
-                    {
-                        set.Add(range.Begin);
-                    }
+                    logFiles = logFilesToParse.LogFiles;
                 }
                 else
                 {
-                    lock (ranges)
-                    {
-                        ranges.Add(range);
-                    }
+                    logFiles = emptyLogFilesToParseArray;
                 }
             }
-
-            if (!string.IsNullOrWhiteSpace(setValue))
+            catch (Exception ex)
             {
-                List<string> entries = new();
-                foreach (string entry in setValue.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(e => e.Trim()))
-                {
-                    string entryWithoutComment = entry;
-                    int pos = entryWithoutComment.IndexOf('?');
-                    if (pos >= 0)
-                    {
-                        entryWithoutComment = entryWithoutComment.Substring(0, pos);
-                    }
-                    entryWithoutComment = entryWithoutComment.Trim();
-                    entries.Add(entryWithoutComment);
-                }
-                List<Task> entryTasks = new();
-
-                // iterate in parallel for performance
-                foreach (string entry in entries)
-                {
-                    string entryWithoutComment = entry;
-                    entryTasks.Add(Task.Run(async () =>
-                    {
-                        bool isUserName;
-                        if (entryWithoutComment.StartsWith("user:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            isUserName = true;
-                            entryWithoutComment = entryWithoutComment.Substring("user:".Length);
-                        }
-                        else
-                        {
-                            isUserName = false;
-                        }
-                        if (!ignoreListEntries.Contains(entryWithoutComment))
-                        {
-                            if (!isUserName && IPAddressRange.TryParse(entryWithoutComment, out IPAddressRange rangeFromEntry))
-                            {
-                                AddIPAddressRange(rangeFromEntry);
-                            }
-                            else if (!isUserName &&
-                                (entryWithoutComment.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-                                entryWithoutComment.StartsWith("http://", StringComparison.OrdinalIgnoreCase)))
-                            {
-                                try
-                                {
-                                    if (httpRequestMaker != null)
-                                    {
-                                        // assume url list of ips, newline delimited
-                                        byte[] ipListBytes = null;
-                                        Uri uri = new(entryWithoutComment);
-                                        await ExtensionMethods.RetryAsync(async () => ipListBytes = await httpRequestMaker.MakeRequestAsync(uri, null, ipListHeaders));
-                                        string ipList = Encoding.UTF8.GetString(ipListBytes);
-                                        if (!string.IsNullOrWhiteSpace(ipList))
-                                        {
-                                            foreach (string item in ipList.Split('\n'))
-                                            {
-                                                if (IPAddressRange.TryParse(item.Trim(), out IPAddressRange ipRangeFromUrl))
-                                                {
-                                                    AddIPAddressRange(ipRangeFromUrl);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Logger.Error(ex, "Failed to get ip list from url {0}", entryWithoutComment);
-                                }
-                            }
-                            else if (!isUserName && Uri.CheckHostName(entryWithoutComment) != UriHostNameType.Unknown)
-                            {
-                                try
-                                {
-                                    // add entries for each ip address that matches the dns entry
-                                    IPAddress[] addresses = null;
-                                    await ExtensionMethods.RetryAsync(async () => addresses = await dns.GetHostAddressesAsync(entryWithoutComment),
-                                        exceptionRetry: _ex =>
-                                        {
-                                            // ignore host not found errors
-                                            return (!(_ex is System.Net.Sockets.SocketException socketEx) ||
-                                                socketEx.SocketErrorCode != System.Net.Sockets.SocketError.HostNotFound);
-                                        });
-
-                                    lock (set)
-                                    {
-                                        foreach (IPAddress adr in addresses)
-                                        {
-                                            set.Add(adr);
-                                        }
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Logger.Debug("Unable to resolve dns for {0}: {1}", entryWithoutComment, ex.Message);
-
-                                    lock (others)
-                                    {
-                                        // eat exception, nothing we can do
-                                        others.Add(entryWithoutComment);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                lock (others)
-                                {
-                                    others.Add(entryWithoutComment);
-                                }
-                            }
-                        }
-                    }));
-                }
-
-                Task.WhenAll(entryTasks).Sync();
+                Logger.Error("Failed to load log files from xml", ex);
+                logFiles = emptyLogFilesToParseArray;
             }
-
-            if (!string.IsNullOrWhiteSpace(regexValue))
-            {
-                regex = ParseRegex(regexValue);
-            }
+            return logFiles;
         }
 
         private void ParseFirewallBlockRules()
@@ -590,7 +372,7 @@ namespace DigitalRuby.IPBanCore
             {
                 if (regex != null)
                 {
-                    new Regex(regex, options);
+                    _ = new Regex(regex, options);
                 }
                 return null;
             }
@@ -664,6 +446,12 @@ namespace DigitalRuby.IPBanCore
                 }
             }
             return sb.ToString().Trim();
+        }
+
+        /// <inheritdoc />
+        public override string ToString()
+        {
+            return Xml;
         }
 
         /// <summary>
@@ -809,74 +597,6 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
-        /// Check if an entry is whitelisted
-        /// </summary>
-        /// <param name="entry">Entry</param>
-        /// <returns>True if whitelisted, false otherwise</returns>
-        public bool IsWhitelisted(string entry)
-        {
-            System.Net.IPAddress ipAddress = null;
-
-            // if we have a dns list and the parameter is an ip address and the ip address
-            // is one of our dns servers, it is whitelisted
-            if (dnsList != null &&
-                IPAddress.TryParse(entry, out ipAddress) &&
-                dnsList.ContainsIPAddress(ipAddress))
-            {
-                return true;
-            }
-            return IsMatch(entry, ipAddress, whitelist, whitelistRanges, whitelistOther, whitelistRegex);
-        }
-
-        /// <summary>
-        /// Check if an ip address range is whitelisted. If any whitelist ip or range intersects, the range is whitelisted.
-        /// </summary>
-        /// <param name="range">Range</param>
-        /// <returns>True if range is whitelisted, false otherwise</returns>
-        public bool IsWhitelisted(IPAddressRange range)
-        {
-            // if we have a dns list and one of our dns servers is in the range, the range is whitelisted
-            if (dnsList != null && dnsList.ContainsIPAddressRange(range))
-            {
-                return true;
-            }
-
-            // if the whitelist ip address set contains the range or
-            // the whitelist range set contains the range,
-            // the passed in range is considered whitelisted
-            else if (whitelist.Any(i => range.Contains(i)) ||
-                whitelistRanges.Any(r => r.Contains(range)))
-            {
-                return true;
-            }
-
-            // it's possible the whitelist other list or whitelist regex will match, but it's too performance
-            // intensive to scan every range in the incoming range to check, oh well...
-            return false;
-        }
-
-        /// <summary>
-        /// Check if an ip address, dns name or user name is blacklisted
-        /// </summary>
-        /// <param name="entry">IP address, dns name or user name</param>
-        /// <returns>True if blacklisted, false otherwise</returns>
-        public bool IsBlackListed(string entry)
-        {
-            System.Net.IPAddress ipAddress = null;
-
-            // if we have a dns list and the parameter is an ip address and the ip address
-            // is one of our dns servers, it is not blacklisted
-            if (dnsList != null &&
-                IPAddress.TryParse(entry, out ipAddress) &&
-                dnsList.ContainsIPAddress(ipAddress))
-            {
-                return false;
-            }
-
-            return IsMatch(entry, ipAddress, blackList, blackListRanges, blackListOther, blackListRegex);
-        }
-
-        /// <summary>
         /// Check if a user name fails the user name whitelist regex. If the regex is empty, method returns false.
         /// </summary>
         /// <param name="userName">User name</param>
@@ -896,14 +616,17 @@ namespace DigitalRuby.IPBanCore
         /// If the user name whitelist is empty, this method returns true.
         /// </summary>
         /// <param name="userName">User name</param>
+        /// <param name="hasUserNameWhitelist">Whether a user name whitelist is defined</param>
         /// <returns>True if within max edit distance of any whitelisted user name, false otherwise.</returns>
-        public bool IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(string userName)
+        public bool IsUserNameWithinMaximumEditDistanceOfUserNameWhitelist(string userName, out bool hasUserNameWhitelist)
         {
             if (userNameWhitelist.Count == 0)
             {
-                return true;
+                hasUserNameWhitelist = false;
+                return false;
             }
 
+            hasUserNameWhitelist = true;
             userName = userName.Normalize().ToUpperInvariant().Trim();
             foreach (string userNameToCheckAgainst in userNameWhitelist)
             {
@@ -976,7 +699,13 @@ namespace DigitalRuby.IPBanCore
             }
             return doc.OuterXml;
         }
-        
+
+        /// <inheritdoc />
+        public bool IsWhitelisted(string entry) => whitelistFilter.IsFiltered(entry);
+
+        /// <inheritdoc />
+        public bool IsWhitelisted(IPAddressRange range) => whitelistFilter.IsFiltered(range);
+
         /// <summary>
         /// Raw xml
         /// </summary>
@@ -1055,30 +784,19 @@ namespace DigitalRuby.IPBanCore
         public bool ClearFailedLoginsOnSuccessfulLogin { get { return clearFailedLoginsOnSuccessfulLogin; } }
 
         /// <summary>
-        /// Get all ip address ranges in the blacklist
+        /// Whether to process internal ip addresses (default false)
         /// </summary>
-        public IReadOnlyCollection<IPAddressRange> BlackList
-        {
-            get { return blackList.Select(b => new IPAddressRange(b)).Union(blackListRanges).ToArray(); }
-        }
+        public bool ProcessInternalIPAddresses { get { return processInternalIPAddresses; } }
 
         /// <summary>
-        /// Black list regex
+        /// Whitelist
         /// </summary>
-        public string BlackListRegex { get { return (blackListRegex is null ? string.Empty : blackListRegex.ToString()); } }
+        public IIPBanFilter WhitelistFilter => whitelistFilter;
 
         /// <summary>
-        /// Get all ip address ranges in the whitelist
+        /// Blacklist
         /// </summary>
-        public IReadOnlyCollection<IPAddressRange> Whitelist
-        {
-            get { return whitelist.Select(b => new IPAddressRange(b)).Union(whitelistRanges).ToArray(); }
-        }
-
-        /// <summary>
-        /// White list regex
-        /// </summary>
-        public string WhitelistRegex { get { return (whitelistRegex is null ? string.Empty : whitelistRegex.ToString()); } }
+        public IIPBanFilter BlacklistFilter => blacklistFilter;
 
         /// <summary>
         /// White list user names. Any user name found not in the list is banned, unless the list is empty, in which case no checking is done.
@@ -1089,7 +807,7 @@ namespace DigitalRuby.IPBanCore
         /// <summary>
         /// User name whitelist regex, or empty if not set.
         /// </summary>
-        public string UserNameWhitelistRegex {  get { return (userNameWhitelistRegex is null ? string.Empty : userNameWhitelistRegex.ToString()); } }
+        public string UserNameWhitelistRegex { get { return (userNameWhitelistRegex is null ? string.Empty : userNameWhitelistRegex.ToString()); } }
 
         /// <summary>
         /// Number of failed logins before banning a user name in the user name whitelist
