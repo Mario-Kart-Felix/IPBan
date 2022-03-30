@@ -82,6 +82,16 @@ namespace DigitalRuby.IPBanTests
             {
                 new
                 (
+                    @"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='MSSQL$SQLEXPRESS' /><EventID Qualifiers='49152'>18456</EventID><Level>0</Level><Task>4</Task><Keywords>0x90000000000000</Keywords><TimeCreated SystemTime='2022-01-20T06:27:10.969710200Z' /><EventRecordID>90864</EventRecordID><Channel>Application</Channel><Computer>a-b-123</Computer><Security /></System><EventData><Data>asdf</Data><Data>Reason: Could not find a login matching the name provided.</Data><Data>[CLIENT: 55.52.51.50]</Data><Binary>184800000E0000001B0000004800570043002D004800570050002D0034003600350035003400370030005C00530051004C0045005800500052004500530053000000070000006D00610073007400650072000000</Binary></EventData></Event>",
+                    "55.52.51.50,asdf,MSSQL,0"
+                ),
+                new
+                (
+                    @"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}' /><EventID>4624</EventID><Version>2</Version><Level>0</Level><Task>12544</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2021-12-15T07:16:01.778994300Z' /><EventRecordID>78774</EventRecordID><Correlation ActivityID='{a690d8ff-0cda-0001-9dc0-803f0af0d701}' /><Execution ProcessID='784' ThreadID='7440' /><Channel>Security</Channel><Computer>mycpu</Computer><Security /></System><EventData><Data Name='SubjectUserSid'>S-1-0-0</Data><Data Name='SubjectUserName'>-</Data><Data Name='SubjectDomainName'>-</Data><Data Name='SubjectLogonId'>0x0</Data><Data Name='TargetUserSid'>S-1-5-21-79270238-3345194075-2850264514-1947</Data><Data Name='TargetUserName'>z123</Data><Data Name='TargetDomainName'>PROCO</Data><Data Name='TargetLogonId'>0x3417542</Data><Data Name='LogonType'>3</Data><Data Name='LogonProcessName'>NtLmSsp</Data><Data Name='AuthenticationPackageName'>NTLM</Data><Data Name='WorkstationName'>DESKTOP-QNKQ35J</Data><Data Name='LogonGuid'>{00000000-0000-0000-0000-000000000000}</Data><Data Name='TransmittedServices'>-</Data><Data Name='LmPackageName'>NTLM V2</Data><Data Name='KeyLength'>128</Data><Data Name='ProcessId'>0x0</Data><Data Name='ProcessName'>-</Data><Data Name='IpAddress'>6.67.3.10</Data><Data Name='IpPort'>52016</Data><Data Name='ImpersonationLevel'>%%1833</Data><Data Name='RestrictedAdminMode'>-</Data><Data Name='TargetOutboundUserName'>-</Data><Data Name='TargetOutboundDomainName'>-</Data><Data Name='VirtualAccount'>%%1843</Data><Data Name='TargetLinkedLogonId'>0x0</Data><Data Name='ElevatedToken'>%%1843</Data></EventData></Event>",
+                    "6.67.3.10,z123,RDP,1"
+                ),
+                new
+                (
                     @"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-RemoteDesktopServices-RdpCoreTS' Guid='{1139C61B-B549-4251-8ED3-27250A1EDEC8}'/><EventID>140</EventID><Version>0</Version><Level>3</Level><Task>4</Task><Opcode>14</Opcode><Keywords>0x4000000000000000</Keywords><TimeCreated SystemTime='2020-05-30T21:35:42.077609500Z'/><EventRecordID>3230629</EventRecordID><Correlation ActivityID='{F4201097-CCED-4F8B-BC9A-6E34FC360000}'/><Execution ProcessID='2084' ThreadID='6188'/><Channel>Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational</Channel><Computer>my.domain.com</Computer><Security UserID='S-1-5-20'/></System><EventData><Data Name='IPString'>212.92.107.115</Data></EventData><RenderingInfo Culture='en-US'><Message>A connection from the client computer with an IP address of 212.92.107.115 failed because the user name or password is not correct.</Message><Level>Warning</Level><Task>RemoteFX module</Task><Opcode>ProtocolExchange</Opcode><Channel>Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational</Channel><Provider></Provider><Keywords></Keywords></RenderingInfo></Event>",
                     "212.92.107.115,,RDP,0"
                 ),
@@ -317,8 +327,8 @@ namespace DigitalRuby.IPBanTests
                 IPBanService.UtcNow += TimeSpan.FromSeconds(10.0);
             }
 
-            string[] blockedIPAddresses = service.Firewall.EnumerateBannedIPAddresses().ToArray();
-            string[] expected = new string[]
+            string[] actualBlockedIPAddresses = service.Firewall.EnumerateBannedIPAddresses().ToArray();
+            string[] expectedBlockedIPAddresses = new string[]
             {
                 "1.2.3.4",
                 "2.92.13.221",
@@ -331,6 +341,7 @@ namespace DigitalRuby.IPBanTests
                 "37.140.141.29",
                 "37.191.115.2",
                 "41.42.43.44",
+                "55.52.51.50",
                 "61.62.63.64",
                 "70.91.222.121",
                 "82.61.45.195",
@@ -353,14 +364,15 @@ namespace DigitalRuby.IPBanTests
                 "218.10.17.192",
                 "222.186.61.16"
             };
-            Array.Sort(blockedIPAddresses);
-            Array.Sort(expected);
-            if (expected.Length != blockedIPAddresses.Length)
+            Array.Sort(actualBlockedIPAddresses);
+            Array.Sort(expectedBlockedIPAddresses);
+            if (expectedBlockedIPAddresses.Length != actualBlockedIPAddresses.Length)
             {
-                Assert.Fail("Failed to block ips: " + string.Join(", ", expected.Except(blockedIPAddresses)));
+                Assert.Fail("Failed to block ips: " + string.Join(", ", expectedBlockedIPAddresses.Except(actualBlockedIPAddresses)));
             }
-            Assert.AreEqual(expected, blockedIPAddresses);
-            Assert.AreEqual(5, successEvents.Count);
+            Assert.AreEqual(expectedBlockedIPAddresses, actualBlockedIPAddresses);
+            Assert.AreEqual(6, successEvents.Count);
+            Assert.AreEqual(5, successEvents["6.67.3.10_RDP_z123"]);
             Assert.AreEqual(5, successEvents["24.42.43.14_VNC_"]);
             Assert.AreEqual(5, successEvents["44.55.66.77_RDP_rdpuser"]);
             Assert.AreEqual(5, successEvents["74.76.76.76_RDP_administrateur"]);

@@ -44,6 +44,7 @@ namespace DigitalRuby.IPBanCore
     /// Base ipban service class. Configuration, firewall and many other properties will
     /// not be initialized until the first RunCycle is called.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
     public partial class IPBanService : IIPBanService, IIsWhitelisted
     {
         /// <summary>
@@ -64,16 +65,7 @@ namespace DigitalRuby.IPBanCore
         /// <returns>IPBanService (if not found an exception is thrown)</returns>
         public static T CreateService<T>() where T : IPBanService
         {
-            Type typeOfT = typeof(T);
-
-            // if any derived class of IPBanService, use that
-            IReadOnlyCollection<Type> allTypes = ExtensionMethods.GetAllTypes();
-            var q =
-                from type in allTypes
-                where typeOfT.IsAssignableFrom(type)
-                select type;
-            Type instanceType = (q.FirstOrDefault() ?? typeof(IPBanService));
-            return Activator.CreateInstance(instanceType, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, null, null) as T;
+            return Activator.CreateInstance(typeof(T), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, null, null) as T;
         }
 
         /// <summary>
@@ -89,6 +81,7 @@ namespace DigitalRuby.IPBanCore
                     {
                         if (IsRunning)
                         {
+                            GC.Collect(int.MaxValue, GCCollectionMode.Forced, true, true);
                             await UpdateConfiguration();
                             await SetNetworkInfo();
                             await UpdateDelegate();
@@ -116,7 +109,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error($"Error on {nameof(IPBanService)}.{nameof(RunCycleAsync)}", ex);
                 }
@@ -222,7 +215,7 @@ namespace DigitalRuby.IPBanCore
                     //  the different ip regex.
                     int lastColon = tempIPAddress.LastIndexOf(':');
                     bool isValidIPAddress = IPAddress.TryParse(tempIPAddress, out IPAddress tmp);
-                    if (isValidIPAddress || (lastColon >= 0 && IPAddress.TryParse(tempIPAddress.Substring(0, lastColon), out tmp)))
+                    if (isValidIPAddress || (lastColon >= 0 && IPAddress.TryParse(tempIPAddress[..lastColon], out tmp)))
                     {
                         ipAddress = tmp.ToString();
                     }
@@ -374,7 +367,7 @@ namespace DigitalRuby.IPBanCore
                 }
                 catch (Exception ex)
                 {
-                    if (!(ex is OperationCanceledException))
+                    if (ex is not OperationCanceledException)
                     {
                         Logger.Error($"Error in {nameof(IPBanService)}.{nameof(IPBanService.RunAsync)}", ex);
                     }
@@ -503,7 +496,7 @@ namespace DigitalRuby.IPBanCore
                                 }
                                 catch (Exception ex)
                                 {
-                                    if (!(ex is OperationCanceledException))
+                                    if (ex is not OperationCanceledException)
                                     {
                                         Logger.Error(ex);
                                     }
@@ -645,6 +638,7 @@ namespace DigitalRuby.IPBanCore
                 service.RunCycleAsync().Sync();
                 service.IPBanDelegate = null;
                 service.Dispose();
+                ExtensionMethods.RemoveDatabaseFiles();
                 NLog.Time.TimeSource.Current = new NLog.Time.AccurateUtcTimeSource();
                 IPBanService.UtcNow = default;
             }

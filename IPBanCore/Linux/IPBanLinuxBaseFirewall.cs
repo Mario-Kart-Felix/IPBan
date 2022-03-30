@@ -35,6 +35,10 @@ using System.Threading.Tasks;
 
 namespace DigitalRuby.IPBanCore
 {
+    /// <summary>
+    /// Linux firewall base class
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All)]
     public abstract class IPBanLinuxBaseFirewall : IPBanBaseFirewall
     {
         private readonly AddressFamily addressFamily;
@@ -80,7 +84,7 @@ namespace DigitalRuby.IPBanCore
             }
         }
 
-        private void DeleteSet(string ruleName)
+        private static void DeleteSet(string ruleName)
         {
             RunProcess("ipset", true, out IReadOnlyList<string> lines, "list -n");
             foreach (string line in lines)
@@ -142,7 +146,7 @@ namespace DigitalRuby.IPBanCore
             return Path.Combine(AppContext.BaseDirectory, "ipban.set");
         }
 
-        protected int RunProcess(string program, bool requireExitCode, string commandLine, params object[] args)
+        protected static int RunProcess(string program, bool requireExitCode, string commandLine, params object[] args)
         {
             return RunProcess(program, requireExitCode, out _, commandLine, args);
         }
@@ -212,7 +216,7 @@ namespace DigitalRuby.IPBanCore
                 {
                     // rule number is first piece of the line
                     int index = line.IndexOf(' ');
-                    int ruleNum = int.Parse(line.Substring(0, index));
+                    int ruleNum = int.Parse(line[..index]);
 
                     // replace the rule with the new info
                     RunProcess(IpTablesProcess, true, $"-R INPUT {ruleNum} -m state --state NEW -m set{portString}--match-set \"{ruleName}\" src -j {action}");
@@ -479,11 +483,11 @@ namespace DigitalRuby.IPBanCore
             string ruleNameWithSpaces = " " + ruleName + " ";
             foreach (string line in lines)
             {
-                if (line.IndexOf(ruleNameWithSpaces, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (line.Contains(ruleNameWithSpaces, StringComparison.OrdinalIgnoreCase))
                 {
                     // rule number is first piece of the line
                     int index = line.IndexOf(' ');
-                    int ruleNum = int.Parse(line.Substring(0, index));
+                    int ruleNum = int.Parse(line[..index]);
 
                     // remove the rule from iptables
                     RunProcess(IpTablesProcess, true, $"-D INPUT {ruleNum}");
@@ -507,7 +511,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error(ex);
                 }
@@ -524,7 +528,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error(ex);
                 }
@@ -542,7 +546,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error(ex);
                 }
@@ -558,7 +562,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error(ex);
                 }
@@ -575,7 +579,7 @@ namespace DigitalRuby.IPBanCore
             }
             catch (Exception ex)
             {
-                if (!(ex is OperationCanceledException))
+                if (ex is not OperationCanceledException)
                 {
                     Logger.Error(ex);
                 }

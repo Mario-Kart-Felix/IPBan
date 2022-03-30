@@ -19,7 +19,7 @@ namespace DigitalRuby.IPBanCore {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "16.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     public class IPBanResources {
@@ -75,6 +75,24 @@ namespace DigitalRuby.IPBanCore {
         public static string Administrator {
             get {
                 return ResourceManager.GetString("Administrator", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Common Failed User Name Ban.
+        /// </summary>
+        public static string AggregateBanUserNames {
+            get {
+                return ResourceManager.GetString("AggregateBanUserNames", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Threshold,hours to examine common user names and ban attackers that exceed threshold within hours timespan. Set to empty to disable this feature..
+        /// </summary>
+        public static string AggregateBanUserNamesTooltip {
+            get {
+                return ResourceManager.GetString("AggregateBanUserNamesTooltip", resourceCulture);
             }
         }
         
@@ -295,7 +313,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Country Blacklist.
+        ///   Looks up a localized string similar to Country Blocklist.
         /// </summary>
         public static string CountryBlacklist {
             get {
@@ -340,11 +358,38 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Invert Country Blocklist.
+        /// </summary>
+        public static string CountryBlacklistInvert {
+            get {
+                return ResourceManager.GetString("CountryBlacklistInvert", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Whether to invert country block list (checked), so the countries specified are allow only and everything else is blocked. The default is to only block countries specified (unchecked)..
+        /// </summary>
+        public static string CountryBlacklistInvertTooltip {
+            get {
+                return ResourceManager.GetString("CountryBlacklistInvertTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Select banned countries. The firewall will be updated with the first failed login from an ip address in the range of any blocked country, excluding any whitelisted ip addresses..
         /// </summary>
         public static string CountryBlacklistTooltip {
             get {
                 return ResourceManager.GetString("CountryBlacklistTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Start typing and pick countries from the dropdown that appears.
+        /// </summary>
+        public static string CountryBlockHelpLabel {
+            get {
+                return ResourceManager.GetString("CountryBlockHelpLabel", resourceCulture);
             }
         }
         
@@ -1609,7 +1654,7 @@ namespace DigitalRuby.IPBanCore {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to (c) 2018 Digital Ruby, LLC.
+        ///   Looks up a localized string similar to (c) 2018-{0} Digital Ruby, LLC.
         /// </summary>
         public static string SiteCopyright {
             get {

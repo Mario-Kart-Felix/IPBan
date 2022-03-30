@@ -29,17 +29,17 @@ namespace DigitalRuby.IPBanCore
     /// <summary>
     /// Range of ipv6 addresses
     /// </summary>
-    public struct IPV6Range : IComparable<IPV6Range>
+    public readonly struct IPV6Range : IComparable<IPV6Range>
     {
         /// <summary>
         /// Begin ip address
         /// </summary>
-        public UInt128 Begin;
+        public readonly UInt128 Begin;
 
         /// <summary>
         /// End ip address
         /// </summary>
-        public UInt128 End;
+        public readonly UInt128 End;
 
         /// <summary>
         /// Get hash code
@@ -69,6 +69,28 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Equals
+        /// </summary>
+        /// <param name="r1">Range1</param>
+        /// <param name="r2">Range2</param>
+        /// <returns>True if equal</returns>
+        public static bool operator ==(IPV6Range r1, IPV6Range r2)
+        {
+            return r1.Equals(r2);
+        }
+
+        /// <summary>
+        /// Not equals
+        /// </summary>
+        /// <param name="r1">Range1</param>
+        /// <param name="r2">Range2</param>
+        /// <returns>True if not equal</returns>
+        public static bool operator !=(IPV6Range r1, IPV6Range r2)
+        {
+            return !r1.Equals(r2);
+        }
+
+        /// <summary>
         /// ToString
         /// </summary>
         /// <returns>String</returns>
@@ -90,6 +112,17 @@ namespace DigitalRuby.IPBanCore
             }
             Begin = range.Begin.ToUInt128();
             End = range.End.ToUInt128();
+        }
+
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="begin">Begin</param>
+        /// <param name="end">End</param>
+        public IPV6Range(in UInt128 begin, in UInt128 end)
+        {
+            Begin = begin;
+            End = end;
         }
 
         /// <summary>

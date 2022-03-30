@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFrameworks>net5.0</TargetFrameworks>
+		<TargetFrameworks>net6.0</TargetFrameworks>
 		<PlatformTarget>AnyCPU</PlatformTarget>
 		<Company>Digital Ruby, LLC</Company>
 		<Copyright>(c) 2010 Digital Ruby, LLC</Copyright>
@@ -23,7 +23,8 @@
 		<PublishTrimmed>true</PublishTrimmed>
 		<GenerateSerializationAssemblies>Off</GenerateSerializationAssemblies>
 		<ApplicationIcon>../ipban_favicon.ico</ApplicationIcon>
-		<IsTrimmable>false</IsTrimmable>
+		<BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+		<ServerGarbageCollection>false</ServerGarbageCollection>
 	</PropertyGroup>
 
 	<ItemGroup>

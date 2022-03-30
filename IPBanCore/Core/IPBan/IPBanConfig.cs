@@ -28,6 +28,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -274,6 +275,9 @@ namespace DigitalRuby.IPBanCore
             banTimes = newBanTimes.ToArray();
         }
 
+        private static readonly ConcurrentDictionary<Type, XmlSerializer> eventViewerSerializers = new();
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         private static T ParseEventViewer<T>(XmlDocument doc, string path, bool notifyOnly) where T : EventViewerExpressions, new()
         {
             XmlNode node = doc.SelectSingleNode(path);
@@ -282,7 +286,8 @@ namespace DigitalRuby.IPBanCore
             {
                 try
                 {
-                    eventViewerExpressions = new XmlSerializer(typeof(T)).Deserialize(new XmlNodeReader(node)) as T;
+                    XmlSerializer configDeserializer = eventViewerSerializers.GetOrAdd(typeof(T), new XmlSerializer(typeof(T)));
+                    eventViewerExpressions = configDeserializer.Deserialize(new XmlNodeReader(node)) as T;
                 }
                 catch (Exception ex)
                 {
@@ -301,13 +306,17 @@ namespace DigitalRuby.IPBanCore
             return eventViewerExpressions;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
+        private static readonly XmlSerializer logFileDeserializer = new(typeof(IPBanLogFilesToParse));
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         private static IPBanLogFileToParse[] ParseLogFiles(XmlDocument doc, string path)
         {
             IPBanLogFileToParse[] logFiles;
             try
             {
                 XmlNode logFilesToParseNode = doc.SelectSingleNode(path);
-                if (logFilesToParseNode != null && new XmlSerializer(typeof(IPBanLogFilesToParse)).Deserialize(new XmlNodeReader(logFilesToParseNode)) is IPBanLogFilesToParse logFilesToParse)
+                if (logFilesToParseNode != null && logFileDeserializer.Deserialize(new XmlNodeReader(logFilesToParseNode)) is IPBanLogFilesToParse logFilesToParse)
                 {
                     logFiles = logFilesToParse.LogFiles;
                 }
@@ -461,6 +470,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="key">Key</param>
         /// <param name="defaultValue">Default value if null or not found</param>
         /// <returns>Value</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public T GetConfig<T>(string key, T defaultValue = default)
         {
             try
@@ -485,6 +495,7 @@ namespace DigitalRuby.IPBanCore
         /// <typeparam name="T">Type of value to set</typeparam>
         /// <param name="key">Key</param>
         /// <param name="value">Value</param>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public void GetConfig<T>(string key, ref T value)
         {
             try
@@ -511,6 +522,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="maxValue">Max value</param>
         /// <param name="clampSmallTimeSpan">Whether to clamp small timespan to max value</param>
         /// <returns>Value</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public void GetConfig<T>(string key, ref T value, T? minValue = null, T? maxValue = null, bool clampSmallTimeSpan = true) where T : struct, IComparable<T>
         {
             try
@@ -536,6 +548,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="key">Key</param>
         /// <param name="value">Value</param>
         /// <param name="defaultValue">Default value if array was empty</param>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public void GetConfigArray<T>(string key, ref T[] value, T[] defaultValue)
         {
             try

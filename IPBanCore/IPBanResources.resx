@@ -181,7 +181,7 @@
     <comment>Country of the world</comment>
   </data>
   <data name="CountryBlacklist" xml:space="preserve">
-    <value>Country Blacklist</value>
+    <value>Country Blocklist</value>
   </data>
   <data name="CountryBlacklistInterval" xml:space="preserve">
     <value>Country Blacklist Interval</value>
@@ -459,7 +459,7 @@
     <comment>i.e. Change the current settings</comment>
   </data>
   <data name="SiteCopyright" xml:space="preserve">
-    <value>(c) 2018 Digital Ruby, LLC</value>
+    <value>(c) 2018-{0} Digital Ruby, LLC</value>
   </data>
   <data name="SiteLink" xml:space="preserve">
     <value>https://ipban.com</value>
@@ -874,5 +874,20 @@
   </data>
   <data name="ProcessInternalIPAddressesTooltip" xml:space="preserve">
     <value>Whether to process internal ip addresses</value>
+  </data>
+  <data name="CountryBlockHelpLabel" xml:space="preserve">
+    <value>Start typing and pick countries from the dropdown that appears</value>
+  </data>
+  <data name="AggregateBanUserNames" xml:space="preserve">
+    <value>Common Failed User Name Ban</value>
+  </data>
+  <data name="AggregateBanUserNamesTooltip" xml:space="preserve">
+    <value>Threshold,hours to examine common user names and ban attackers that exceed threshold within hours timespan. Set to empty to disable this feature.</value>
+  </data>
+  <data name="CountryBlacklistInvert" xml:space="preserve">
+    <value>Invert Country Blocklist</value>
+  </data>
+  <data name="CountryBlacklistInvertTooltip" xml:space="preserve">
+    <value>Whether to invert country block list (checked), so the countries specified are allow only and everything else is blocked. The default is to only block countries specified (unchecked).</value>
   </data>
 </root>

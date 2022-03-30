@@ -26,7 +26,9 @@ SOFTWARE.
 
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -133,11 +135,14 @@ namespace DigitalRuby.IPBanCore
             return Encoding.UTF8.GetString(bytes);
         }
 
+        private static readonly ConcurrentDictionary<Type, XmlSerializer> toStringXmlSerializers = new();
+
         /// <summary>
         /// Convert an object to an xml fragment
         /// </summary>
         /// <param name="obj">Object</param>
         /// <returns>Xml fragment or null if obj is null</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public static string ToStringXml(this object obj)
         {
             if (obj is null)
@@ -146,7 +151,7 @@ namespace DigitalRuby.IPBanCore
             }
 
             StringWriter xml = new();
-            XmlSerializer serializer = new(obj.GetType());
+            XmlSerializer serializer = toStringXmlSerializers.GetOrAdd(obj.GetType(), new XmlSerializer(obj.GetType()));
             using (XmlWriter writer = XmlWriter.Create(xml, new XmlWriterSettings { Indent = true, NewLineHandling = NewLineHandling.None, OmitXmlDeclaration = true }))
             {
                 serializer.Serialize(writer, obj, emptyXmlNs);
@@ -256,7 +261,7 @@ namespace DigitalRuby.IPBanCore
         public static string ToSHA256String(this string s)
         {
             s ??= string.Empty;
-            using SHA256Managed hasher = new();
+            using var hasher = SHA256.Create();
             return BitConverter.ToString(hasher.ComputeHash(Encoding.UTF8.GetBytes(s))).Replace("-", string.Empty);
         }
 
@@ -374,8 +379,8 @@ namespace DigitalRuby.IPBanCore
                 ip = ip.Clean();
                 if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                 {
-                    byte[] bytes = ip.GetAddressBytes();
-                    if (bytes is null || bytes.Length < 4)
+                    Span<byte> bytes = stackalloc byte[4];
+                    if (!ip.TryWriteBytes(bytes, out int byteCount))
                     {
                         return true;
                     }
@@ -411,11 +416,11 @@ namespace DigitalRuby.IPBanCore
                 // ULA has two variants: 
                 //      fc00::/8 is not defined yet, but might be used in the future for internal-use addresses that are registered in a central place (ULA Central). 
                 //      fd00::/8 is in use and does not have to registered anywhere.
-                if (firstWord.Length >= 4 && firstWord.Substring(0, 2) == "fc")
+                if (firstWord.Length >= 4 && firstWord[..2] == "fc")
                 {
                     return true;
                 }
-                else if (firstWord.Length >= 4 && firstWord.Substring(0, 2) == "fd")
+                else if (firstWord.Length >= 4 && firstWord[..2] == "fd")
                 {
                     return true;
                 }
@@ -473,12 +478,14 @@ namespace DigitalRuby.IPBanCore
         {
             if (ip != null)
             {
-                byte[] bytes = ip.GetAddressBytes();
-                if (bytes.Length == 4)
+                Span<byte> bytes = stackalloc byte[16];
+                ip.TryWriteBytes(bytes, out int byteCount);
+
+                if (byteCount == 4)
                 {
                     return (bytes[0] == 127 && bytes[1] == 0 && (bytes[2] == 0 || bytes[2] == 1) && bytes[3] == 1);
                 }
-                else if (bytes.Length == 16)
+                else if (byteCount == 16)
                 {
                     return (bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0 &&
                         bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0 &&
@@ -503,35 +510,45 @@ namespace DigitalRuby.IPBanCore
                 throw new InvalidOperationException(ip?.ToString() + " is not an ipv4 address");
             }
 
-            byte[] bytes = ip.GetAddressBytes();
+            Span<byte> bytes = stackalloc byte[4];
+            ip.TryWriteBytes(bytes, out int byteCount);
             if (swap && BitConverter.IsLittleEndian)
             {
-                bytes = bytes.Reverse().ToArray();
+                // reverse big endian (network order) to little endian
+                for (int i = 0; i < byteCount / 2; i++)
+                {
+                    (bytes[byteCount - i - 1], bytes[i]) = (bytes[i], bytes[byteCount - i - 1]);
+                }
             }
-            return BitConverter.ToUInt32(bytes, 0);
+            return BitConverter.ToUInt32(bytes);
         }
 
         /// <summary>
         /// Get a UInt128 from an ipv6 address. The UInt128 will be in the byte order of the CPU.
         /// </summary>
         /// <param name="ip">IPV6 address</param>
+        /// <param name="swap">Whether to make the byte order of the cpu (true) or network host order (false)</param>
         /// <returns>UInt128</returns>
         /// <exception cref="InvalidOperationException">Not an ipv6 address</exception>
-        public static unsafe UInt128 ToUInt128(this IPAddress ip)
+        public static unsafe UInt128 ToUInt128(this IPAddress ip, bool swap = true)
         {
             if (ip is null || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6)
             {
                 throw new InvalidOperationException(ip?.ToString() + " is not an ipv6 address");
             }
 
-            byte[] bytes = ip.GetAddressBytes();
-            if (BitConverter.IsLittleEndian)
+            Span<byte> bytes = stackalloc byte[16];
+            ip.TryWriteBytes(bytes, out int byteCount);
+            if (swap && BitConverter.IsLittleEndian)
             {
                 // reverse big endian (network order) to little endian
-                bytes = bytes.Reverse().ToArray();
+                for (int i = 0; i < byteCount / 2; i++)
+                {
+                    (bytes[byteCount - i - 1], bytes[i]) = (bytes[i], bytes[byteCount - i - 1]);
+                }
             }
-            ulong l1 = BitConverter.ToUInt64(bytes, 0);
-            ulong l2 = BitConverter.ToUInt64(bytes, 8);
+            ulong l1 = BitConverter.ToUInt64(bytes[..8]);
+            ulong l2 = BitConverter.ToUInt64(bytes[8..]);
             return new UInt128(l2, l1);
         }
 
@@ -543,7 +560,8 @@ namespace DigitalRuby.IPBanCore
         /// <exception cref="InvalidOperationException">Not an ipv6 address</exception>
         public static unsafe UInt128 ToUInt128Raw(this IPAddress ip)
         {
-            byte[] bytes = ip.GetAddressBytes();
+            Span<byte> bytes = stackalloc byte[16];
+            ip.TryWriteBytes(bytes, out int byteCount);
             fixed (byte* ptr = bytes)
             {
                 ulong* ulongPtr = (ulong*)ptr;
@@ -559,9 +577,10 @@ namespace DigitalRuby.IPBanCore
         /// <returns>True if incremented, false if ip address was at max value</returns>
         public static bool TryIncrement(this IPAddress ipAddress, out IPAddress result)
         {
-            byte[] bytes = ipAddress.GetAddressBytes();
+            Span<byte> bytes = stackalloc byte[16];
+            ipAddress.TryWriteBytes(bytes, out int byteCount);
 
-            for (int k = bytes.Length - 1; k >= 0; k--)
+            for (int k = byteCount - 1; k >= 0; k--)
             {
                 if (bytes[k] == byte.MaxValue)
                 {
@@ -571,7 +590,7 @@ namespace DigitalRuby.IPBanCore
 
                 bytes[k]++;
 
-                result = new IPAddress(bytes);
+                result = new IPAddress(bytes[..byteCount]);
                 return true;
             }
 
@@ -588,9 +607,10 @@ namespace DigitalRuby.IPBanCore
         /// <returns>True if decremented, false if ip address was at min value</returns>
         public static bool TryDecrement(this IPAddress ipAddress, out IPAddress result)
         {
-            byte[] bytes = ipAddress.GetAddressBytes();
+            Span<byte> bytes = stackalloc byte[16];
+            ipAddress.TryWriteBytes(bytes, out int byteCount);
 
-            for (int k = bytes.Length - 1; k >= 0; k--)
+            for (int k = byteCount - 1; k >= 0; k--)
             {
                 if (bytes[k] == 0)
                 {
@@ -599,7 +619,7 @@ namespace DigitalRuby.IPBanCore
                 }
 
                 bytes[k]--;
-                result = new IPAddress(bytes);
+                result = new IPAddress(bytes[..byteCount]);
                 return true;
             }
 
@@ -624,18 +644,18 @@ namespace DigitalRuby.IPBanCore
             {
                 return ip1.AddressFamily.CompareTo(ip2.AddressFamily);
             }
-
-            byte[] bytes1 = ip1.GetAddressBytes();
-            byte[] bytes2 = ip2.GetAddressBytes();
-            for (int byteIndex = 0; byteIndex < bytes1.Length; byteIndex++)
+            else if (ip1.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
             {
-                int result = bytes1[byteIndex].CompareTo(bytes2[byteIndex]);
-                if (result != 0)
-                {
-                    return result;
-                }
+                UInt32 u1 = ip1.ToUInt32();
+                UInt32 u2 = ip2.ToUInt32();
+                return u1.CompareTo(u2);
             }
-            return 0;
+            else
+            {
+                UInt128 u1 = ip1.ToUInt128();
+                UInt128 u2 = ip2.ToUInt128();
+                return u1.CompareToIn(u2);
+            }
         }
 
         /// <summary>
@@ -659,7 +679,7 @@ namespace DigitalRuby.IPBanCore
                 int pos = normalizedIP.LastIndexOf(':');
                 if (pos >= 0)
                 {
-                    normalizedIP = normalizedIP.Substring(0, pos);
+                    normalizedIP = normalizedIP[..pos];
                     if (!IPAddressRange.TryParse(normalizedIP, out range))
                     {
                         normalizedIP = null;
@@ -770,6 +790,72 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Attempt to get string
+        /// </summary>
+        /// <param name="elem">Element</param>
+        /// <param name="name">Property name</param>
+        /// <returns>String or null if not found</returns>
+        public static string GetString(this System.Text.Json.JsonElement elem, string name)
+        {
+            if (elem.TryGetProperty(name, out var elem2))
+            {
+                return elem2.ToString();
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Attempt to get int32
+        /// </summary>
+        /// <param name="elem">Element</param>
+        /// <param name="name">Property name</param>
+        /// <param name="defaultValue">Default value if not found</param>
+        /// <returns></returns>
+        public static int GetInt32(this System.Text.Json.JsonElement elem, string name, int defaultValue = 0)
+        {
+            if (!elem.TryGetProperty(name, out var elem2) ||
+                !int.TryParse(elem2.ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+            {
+                value = defaultValue;
+            }
+            return value;
+        }
+
+        /// <summary>
+        /// Get datetime 
+        /// </summary>
+        /// <param name="elem">Element</param>
+        /// <param name="name">Property name</param>
+        /// <param name="defaultValue">Default value</param>
+        /// <returns>DateTime or defaultValue if not found</returns>
+        public static DateTime GetDateTime(this System.Text.Json.JsonElement elem, string name, DateTime defaultValue = default)
+        {
+            if (!elem.TryGetProperty(name, out var elem2) ||
+                !elem2.TryGetDateTime(out DateTime timeStamp))
+            {
+                timeStamp = defaultValue;
+            }
+            return timeStamp;
+        }
+
+        /// <summary>
+        /// Get bool
+        /// </summary>
+        /// <param name="elem">Element</param>
+        /// <param name="name">Property name</param>
+        /// <param name="defaultValue">Default value if not found</param>
+        /// <returns>Bool value or defaultValue if not found</returns>
+        public static bool GetBool(this System.Text.Json.JsonElement elem, string name, bool defaultValue = false)
+        {
+            string boolString = elem.GetString(name);
+            if (!bool.TryParse(boolString, out bool value))
+            {
+                value = defaultValue;
+            }
+            return value;
+        }
+
+        /// <summary>
         /// Clamp a timespan, if out of bounds it will be clamped. If timespan is less than 1 second, it will be set to timeMax.
         /// </summary>
         /// <param name="value">Value to clamp</param>
@@ -816,73 +902,87 @@ namespace DigitalRuby.IPBanCore
         }
 
         private static Assembly[] allAssemblies;
+
         /// <summary>
-        /// Get all assemblies
+        /// Get all assemblies, including referenced assemblies. This method will be cached beyond the first call.
         /// </summary>
-        /// <returns>Assemblies</returns>
+        /// <returns>All referenced assemblies</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public static IReadOnlyCollection<Assembly> GetAllAssemblies()
         {
             if (allAssemblies != null)
             {
                 return allAssemblies;
             }
-            List<Assembly> assemblies = new();
-            assemblies.AddRange(AppDomain.CurrentDomain.GetAssemblies());
 
-            // attempt to load plugins
-            string pluginPath = Path.Combine(AppContext.BaseDirectory, "plugins");
-            try
+            var allAssembliesHashSet = new HashSet<Assembly>();
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies().ToArray())
             {
-                if (Directory.Exists(pluginPath))
+                allAssembliesHashSet.Add(assembly);
+                AssemblyName[] references = assembly.GetReferencedAssemblies();
+                foreach (AssemblyName reference in references)
                 {
-                    foreach (string pluginFile in Directory.GetFiles(pluginPath, "*.dll"))
-                    {
-                        try
-                        {
-                            assemblies.Add(Assembly.LoadFile(pluginFile));
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error(ex, "Failed to load plugin at {0}", pluginFile);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to load plugins from {0}", pluginPath);
-            }
-
-            // load assembly references
-            foreach (Assembly assembly in assemblies.ToArray())
-            {
-                foreach (AssemblyName referencedAssemblyName in assembly.GetReferencedAssemblies())
-                {
-
                     try
                     {
-                        if (!assemblies.Any(x => x.GetName().FullName.Equals(referencedAssemblyName.FullName, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            Assembly referencedAssembly = Assembly.Load(referencedAssemblyName);
-                            assemblies.Add(referencedAssembly);
-                        }
+                        Assembly referenceAssembly = Assembly.Load(reference);
+                        allAssembliesHashSet.Add(referenceAssembly);
                     }
                     catch
                     {
-                        // ignore
+                        // don't care, if the assembly can't be loaded there's nothing more to be done
                     }
                 }
             }
 
-            allAssemblies = assemblies.ToArray();
-            return allAssemblies;
+            // get referenced assemblies does not include every assembly if no code was referenced from that assembly
+            string path = AppContext.BaseDirectory;
+            string[] appFiles = Directory.GetFiles(path);
+            string pluginPath = Path.Combine(path, "plugins");
+            if (Directory.Exists(pluginPath))
+            {
+                string[] pluginFiles = Directory.GetFiles(pluginPath);
+                appFiles = appFiles.Concat(pluginFiles).ToArray();
+            }
+            foreach (string dllFile in appFiles.Where(f => f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    bool exists = false;
+                    foreach (Assembly assembly in allAssembliesHashSet)
+                    {
+                        try
+                        {
+                            exists = assembly.Location.Equals(dllFile, StringComparison.OrdinalIgnoreCase);
+                            if (exists)
+                            {
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                            // some assemblies will throw upon attempt to access Location property...
+                        }
+                    }
+                    if (!exists)
+                    {
+                        allAssembliesHashSet.Add(Assembly.LoadFrom(dllFile));
+                    }
+                }
+                catch
+                {
+                    // nothing to be done
+                }
+            }
+            return allAssemblies = allAssembliesHashSet.ToArray();
         }
 
         private static Type[] allTypes;
+
         /// <summary>
         /// Get all types from all assemblies
         /// </summary>
         /// <returns>List of all types</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public static IReadOnlyCollection<Type> GetAllTypes()
         {
             if (allTypes != null)
@@ -891,7 +991,25 @@ namespace DigitalRuby.IPBanCore
             }
             IReadOnlyCollection<Assembly> assemblies = GetAllAssemblies();
             List<Type> types = new();
-            foreach (Assembly assembly in assemblies)
+
+            // prefix to entry assembly first pattern to greatly reduce ram usage
+            string prefix = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
+            int pos = prefix.IndexOf('.');
+            if (pos >= 0)
+            {
+                pos++;
+                prefix = prefix[..pos];
+            }
+
+            // no filter if running unit tests
+            if (UnitTestDetector.Running)
+            {
+                prefix = null;
+            }
+
+            foreach (Assembly assembly in assemblies.Where(a => a.FullName is null ||
+                string.IsNullOrWhiteSpace(prefix) ||
+                a.FullName.StartsWith(prefix)))
             {
                 try
                 {
@@ -903,8 +1021,7 @@ namespace DigitalRuby.IPBanCore
                     // ignore
                 }
             }
-            allTypes = types.ToArray();
-            return allTypes;
+            return allTypes = types.ToArray();
         }
 
         /// <summary>
@@ -962,14 +1079,12 @@ namespace DigitalRuby.IPBanCore
             return new LockedEnumerable<T>(obj);
         }
 
-#pragma warning disable IDE1006
 #pragma warning disable CA1401
 
         [DllImport("libc")]
         public static extern uint getuid();
 
 #pragma warning restore CA1401
-#pragma warning restore IDE1006
 
 #if !IPBAN_API
 
@@ -1184,6 +1299,7 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         /// <param name="typeString"></param>
         /// <returns>System.Type or null if none found</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "jjxtra")]
         public static Type GetTypeFromString(string typeString)
         {
             Type type = Type.GetType(typeString);
@@ -1361,7 +1477,9 @@ namespace DigitalRuby.IPBanCore
                 }
                 else
                 {
-                    return new IPAddress(ipAddress.GetAddressBytes());
+                    Span<byte> bytes = stackalloc byte[16];
+                    ipAddress.TryWriteBytes(bytes, out int byteCount);
+                    return new IPAddress(bytes[..byteCount]);
                 }
             }
             return ipAddress;

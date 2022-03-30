@@ -124,8 +124,10 @@ namespace DigitalRuby.IPBanCore
         /// </summary>
         public void Dispose()
         {
+            GC.SuppressFinalize(this);
             GC.Collect();
             GC.WaitForPendingFinalizers();
+            SqliteConnection.ClearAllPools();
             if (autoDelete)
             {
                 ExtensionMethods.FileDeleteWithRetry(dbPath);

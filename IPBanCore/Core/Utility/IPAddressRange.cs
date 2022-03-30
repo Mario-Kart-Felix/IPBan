@@ -246,7 +246,7 @@ namespace DigitalRuby.IPBanCore
         public IPAddressRange(IPAddress singleAddress, bool ownsIP = false)
         {
             singleAddress.ThrowIfNull(nameof(singleAddress));
-            Begin = End = singleAddress.Clean();
+            Begin = End = singleAddress.Clean(ownsIP);
             Single = true;
         }
 
@@ -332,6 +332,125 @@ namespace DigitalRuby.IPBanCore
         }
 
         /// <summary>
+        /// Computes difference of this ip address range with another range if range intersects this ip address range.
+        /// </summary>
+        /// <param name="range">IP address range to compute difference with</param>
+        /// <param name="left">The resulting difference (inclusive) from the left part of the difference or null if no left part remaining</param>
+        /// <param name="right">The resulting difference (inclusive) from the right part of the difference or null if no right part remaining</param>
+        /// <returns>True if a chomp was performed, false otherwise</returns>
+        /// <remarks>
+        /// - If this range does not intersect the passed range, then left and right will be null, false is returned<br/>
+        /// []<br/>
+        /// - If the passed range is entirely contained in this range with room on both ends, then left and right will be the remaining ranges, true is returned<br/>
+        /// [LEFT-RANGE XXXXXXXXXX RIGHT-RANGE]<br/>
+        /// - If the passed range overlaps only the left part of this range, left will be null, right will be the remaining range, true is returned<br/>
+        /// [XXXXXXXXXX RIGHT_RANGE]<br/>
+        /// - If the passed range overlaps only the right part of this range, right will be null, left will be the remaining range, true is returned<br/>
+        /// [LEFT-RANGE XXXXXXXXXX]<br/>
+        /// - If the passed range exactly equals this range, left and right will be null, true is returned
+        /// [XXXXXXXXXX]
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">This address family not equal to range address family</exception>
+        /// <exception cref="ApplicationException">Something went wrong processing the chomp</exception>
+        public bool Chomp(IPAddressRange range, out IPAddressRange left, out IPAddressRange right)
+        {
+            range.ThrowIfNull(nameof(range));
+            if (range.Begin.AddressFamily != Begin.AddressFamily)
+            {
+                throw new InvalidOperationException($"Cannot chomp with different address families: {this} != {range}");
+            }
+
+            // check if the passed range is fully inside this range with room to spare on both ends
+            int cmpLeft = range.Begin.CompareTo(Begin);
+            int cmpRight = range.End.CompareTo(End);
+            if (cmpLeft > 0 && cmpRight < 0)
+            {
+                // full chomp, left and right will be set
+                if (!range.Begin.TryDecrement(out IPAddress end))
+                {
+                    throw new ApplicationException("Unexpected failed decrement of " + range.Begin);
+                }
+                left = new IPAddressRange(Begin, end);
+                if (!range.End.TryIncrement(out IPAddress start))
+                {
+                    throw new ApplicationException("Unexpected failed increment of " + range.End);
+                }
+                right = new IPAddressRange(start, End);
+                return true;
+            }
+            else if (cmpLeft == 0 && cmpRight == 0)
+            {
+                left = right = null;
+                return true;
+            }
+            else if (cmpRight < 0 && range.End.CompareTo(Begin) >= 0)
+            {
+                // chomp with only right piece remaining
+                left = null;
+                if (!range.End.TryIncrement(out IPAddress start))
+                {
+                    throw new ApplicationException("Unexpected failed increment of " + range.End);
+                }
+                right = new IPAddressRange(start, End);
+                return true;
+            }
+            else if (cmpLeft > 0 && range.Begin.CompareTo(End) <= 0)
+            {
+                // chomp with only left piece remaining
+                if (!range.Begin.TryDecrement(out IPAddress end))
+                {
+                    throw new ApplicationException("Unexpected failed decrement of " + range.Begin);
+                }
+                left = new IPAddressRange(Begin, end);
+                right = null;
+                return true;
+            }
+            left = right = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Attempt to combine this ip address range with another ip address range if they intersect.
+        /// </summary>
+        /// <param name="range">Other ip address range</param>
+        /// <param name="combinedRange">Received combined range</param>
+        /// <returns>True if this ip address range intersects the other range, false otherwise</returns>
+        public bool TryCombine(IPAddressRange range, out IPAddressRange combinedRange)
+        {
+            combinedRange = null;
+
+            // we start after the other range ends
+            if (!range.End.TryIncrement(out IPAddress endPlusOne))
+            {
+                endPlusOne = range.End;
+            }
+
+            int cmp1 = Begin.CompareTo(endPlusOne);
+            if (cmp1 > 0)
+            {
+                return false;
+            }
+
+            // we end before the other range starts
+            // we start after the other range ends
+            if (!range.Begin.TryDecrement(out IPAddress beginMinusOne))
+            {
+                beginMinusOne = range.Begin;
+            }
+
+            int cmp2 = End.CompareTo(beginMinusOne);
+            if (cmp2 < 0)
+            {
+                return false;
+            }
+
+            int cmp3 = Begin.CompareTo(range.Begin);
+            int cmp4 = End.CompareTo(range.End);
+            combinedRange = new IPAddressRange(cmp3 <= 0 ? Begin : range.Begin, cmp4 >= 0 ? End : range.End, true);
+            return true;
+        }
+
+        /// <summary>
         /// Parse ip address
         /// </summary>
         /// <param name="ipRangeString">IP range string</param>
@@ -341,12 +460,12 @@ namespace DigitalRuby.IPBanCore
         {
             try
             {
-                if (throwException)
+                if (string.IsNullOrWhiteSpace(ipRangeString))
                 {
-                    ipRangeString.ThrowIfNull(nameof(ipRangeString));
-                }
-                else if (ipRangeString is null)
-                {
+                    if (throwException)
+                    {
+                        throw new ArgumentNullException(nameof(ipRangeString));
+                    }
                     return null;
                 }
 
@@ -398,7 +517,7 @@ namespace DigitalRuby.IPBanCore
                             return null;
                         }
                         var lastDotAt = begin.LastIndexOf('.');
-                        end = begin.Substring(0, lastDotAt + 1) + end;
+                        end = begin[..(lastDotAt + 1)] + end;
                     }
 
                     return new IPAddressRange(IPAddress.Parse(begin), IPAddress.Parse(end), true);
@@ -502,7 +621,7 @@ namespace DigitalRuby.IPBanCore
         /// <param name="s">Ip address range string or null if failure to parse</param>
         public static implicit operator IPAddressRange(string s)
         {
-            return (string.IsNullOrWhiteSpace(s) ? null : IPAddressRange.Parse(s));
+            return IPAddressRange.Parse(s, false);
         }
 
         /// <summary>

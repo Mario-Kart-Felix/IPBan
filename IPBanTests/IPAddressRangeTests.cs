@@ -622,8 +622,8 @@ namespace DigitalRuby.IPBanTests
 
         [Test]
         [TestCase(null, typeof(ArgumentNullException))]
-        [TestCase("", typeof(FormatException))]
-        [TestCase(" ", typeof(FormatException))]
+        [TestCase("", typeof(ArgumentNullException))]
+        [TestCase(" ", typeof(ArgumentNullException))]
         [TestCase("gvvdv", typeof(FormatException))]
         [TestCase("192.168.0.10/48", typeof(FormatException))] // out of CIDR range 
         [TestCase("192.168.0.10-192.168.0.5", typeof(ArgumentException))] // bigger to lower
@@ -808,6 +808,66 @@ namespace DigitalRuby.IPBanTests
             Assert.IsNull(range);
             range = IPAddressRange.TryCreateFromIPAddresses(ip1, ip3);
             Assert.IsNull(range);
+        }
+
+        [TestCase("10.10.10.10-10.10.10.20", "9.9.9.9-10.10.10.9", false, null, null)]
+        [TestCase("9.9.9.9-10.10.10.9", "10.10.10.10-10.10.10.20", false, null, null)]
+        [TestCase("10.10.10.10-10.10.10.20", "9.9.9.9-11.11.11.11", false, null, null)]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.10-10.10.10.20", true, null, null)]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.15-10.10.10.20", true, "10.10.10.10-10.10.10.14", null)]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.10-10.10.10.15", true, null, "10.10.10.16-10.10.10.20")]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.15-10.10.10.25", true, "10.10.10.10-10.10.10.14", null)]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.5-10.10.10.15", true, null, "10.10.10.16-10.10.10.20")]
+        [TestCase("10.10.10.10-10.10.10.20", "10.10.10.11-10.10.10.19", true, "10.10.10.10", "10.10.10.20")]
+        [TestCase("10.10.10.10-10.10.10.20", "::1", false, null, null, typeof(InvalidOperationException))]
+        [TestCase("::1", "10.10.10.10-10.10.10.20", false, null, null, typeof(InvalidOperationException))]
+        [TestCase("10.10.10.10-10.10.10.20", null, false, null, null, typeof(ArgumentNullException))]
+        [TestCase("125.0.0.1-128.0.0.0", "127.0.0.0-127.255.255.255", true, "125.0.0.1-126.255.255.255", "128.0.0.0")]
+        [TestCase("5.5.5.5-6.6.6.6", "5.5.5.5-6.6.6.6", true, null, null)]
+
+        public void TestChomp(string baseRange, string range, bool expectedResult, string expectedLeft, string expectedRight,
+            Type expectedException = null)
+        {
+            bool result;
+            IPAddressRange leftObj, rightObj;
+            try
+            {
+                IPAddressRange baseRangeObj = IPAddressRange.Parse(baseRange);
+                IPAddressRange rangeObj = IPAddressRange.Parse(range);
+                result = baseRangeObj.Chomp(rangeObj, out leftObj, out rightObj);
+            }
+            catch (Exception ex)
+            {
+                Assert.AreEqual(ex.GetType(), expectedException);
+                return;
+            }
+            if (expectedException is not null)
+            {
+                Assert.Fail("Failed to throw expected exception type {0}", expectedException.Name);
+            }
+            Assert.AreEqual(expectedResult, result);
+            Assert.AreEqual(expectedLeft, leftObj?.ToString());
+            Assert.AreEqual(expectedRight, rightObj?.ToString());
+        }
+
+        [TestCase("2.19.128.0/20", "2.19.144.0/20", "2.19.128.0-2.19.159.255")]
+        [TestCase("2.19.144.0/20", "2.19.128.0/20", "2.19.128.0-2.19.159.255")]
+        [TestCase("1.1.1.1-2.2.2.2", "3.3.3.3-4.4.4.4", null)]
+        [TestCase("3.3.3.3-4.4.4.4", "1.1.1.1-2.2.2.2", null)]
+        public void TestCombine(string baseRange, string otherRange, string expected)
+        {
+            var r1 = IPAddressRange.Parse(baseRange);
+            var r2 = IPAddressRange.Parse(otherRange);
+            r1.TryCombine(r2, out IPAddressRange combined);
+            if (combined is null)
+            {
+                Assert.IsNull(expected);
+            }
+            else
+            {
+                string actual = combined.ToString('-');
+                Assert.AreEqual(expected, actual);
+            }
         }
 
         private static void TestFilterIPAddressRangesHelper(IPAddressRange[] expected, string message, IPAddressRange[] filter, params IPAddressRange[] ranges)
